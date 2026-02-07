@@ -1,5 +1,5 @@
 # LLM configuration
-OLLAMA_MODEL = "llama3.1"
+OLLAMA_MODEL = "mistral"
 
 # Application settings
 APP_NAME = "Enterprise Conversational AI"
