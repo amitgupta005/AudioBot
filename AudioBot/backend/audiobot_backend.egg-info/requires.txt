@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langgraph
+langchain-core
+langchain-openai
+python-dotenv
+websockets
+langchain
+ollama
+langchain-community
