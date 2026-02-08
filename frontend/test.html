@@ -108,7 +108,10 @@
                 log('Error', 'Not connected', 'error');
                 return;
             }
-            ws.send(text);
+            ws.send(JSON.stringify({
+                conversation_id: "test-123",
+                message: text
+            }));
             log('Sent', text, 'sent');
             msgInput.value = '';
         }

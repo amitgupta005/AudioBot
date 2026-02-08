@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudioBot | Premium Voice AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0d0d12;
+            --card-bg: rgba(23, 23, 33, 0.7);
+            --primary: #6366f1;
+            --primary-glow: rgba(99, 102, 241, 0.4);
+            --secondary: #ec4899;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --success: #10b981;
+            --error: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: radial-gradient(circle at top right, #1e1b4b, var(--bg-color)),
+                radial-gradient(circle at bottom left, #312e81, var(--bg-color));
+        }
+
+        /* --- Layout --- */
+
+        header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--glass-border);
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--card-bg);
+            border-radius: 999px;
+            border: 1px solid var(--glass-border);
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+            box-shadow: 0 0 8px var(--error);
+        }
+
+        .status-dot.online {
+            background: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        main {
+            flex: 1;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            max-width: 1000px;
+            margin: 0 auto;
+            width: 100%;
+            gap: 1.5rem;
+            overflow: hidden;
+        }
+
+        /* --- Chat Area --- */
+
+        #chat-window {
+            flex: 1;
+            background: var(--card-bg);
+            border-radius: 24px;
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(20px);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+            scroll-behavior: smooth;
+        }
+
+        #chat-window::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #chat-window::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 1rem 1.25rem;
+            border-radius: 18px;
+            line-height: 1.5;
+            font-size: 0.95rem;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .user-msg {
+            align-self: flex-end;
+            background: var(--primary);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .bot-msg {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            border-bottom-left-radius: 4px;
+        }
+
+        /* --- Controls --- */
+
+        .controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1rem 0;
+        }
+
+        .mode-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .mode-btn {
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
+        }
+
+        .input-wrapper {
+            background: var(--card-bg);
+            border-radius: 32px;
+            border: 1px solid var(--glass-border);
+            padding: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 0.75rem 1rem;
+            color: white;
+            font-family: inherit;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        #voice-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+        }
+
+        #voice-btn.recording {
+            background: var(--secondary);
+            animation: pulse 1.5s infinite;
+            transform: scale(1.1);
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(236, 72, 153, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 15px rgba(236, 72, 153, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(236, 72, 153, 0);
+            }
+        }
+
+        #send-btn {
+            height: 44px;
+            width: 44px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: none;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        #send-btn:hover {
+            transform: scale(1.05);
+            background: #4f46e5;
+        }
+
+        #send-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* --- Visualizer --- */
+        .visualizer-container {
+            height: 30px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            margin-bottom: 0.5rem;
+        }
+
+        .bar {
+            width: 3px;
+            height: 10px;
+            background: var(--secondary);
+            border-radius: 2px;
+            transition: height 0.1s ease;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+            AudioBot
+        </div>
+        <div class="status-pill">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text">Disconnected</span>
+        </div>
+    </header>
+
+    <main>
+        <div id="chat-window">
+            <div class="message bot-msg">Hello! I'm your AudioBot. How can I help you today? You can type a message or
+                tap the mic to speak.</div>
+        </div>
+
+        <div id="recording-overlay" class="visualizer-container">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+
+        <div class="controls-container">
+            <div class="mode-toggle">
+                <button id="text-mode-btn" class="mode-btn active">Text Chat</button>
+                <button id="voice-mode-btn" class="mode-btn">Voice Mode</button>
+            </div>
+
+            <div class="input-wrapper">
+                <button id="voice-btn" title="Hold to record">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                </button>
+                <input type="text" id="text-input" placeholder="Type your message..." autocomplete="off">
+                <button id="send-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const chatWindow = document.getElementById('chat-window');
+        const textInput = document.getElementById('text-input');
+        const sendBtn = document.getElementById('send-btn');
+        const voiceBtn = document.getElementById('voice-btn');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const visualizer = document.getElementById('recording-overlay');
+        const textModeBtn = document.getElementById('text-mode-btn');
+        const voiceModeBtn = document.getElementById('voice-mode-btn');
+
+        let currentMode = 'text'; // 'text' or 'voice'
+
+        let ws = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        const convId = "premium-ui-test-" + Math.floor(Math.random() * 1000);
+
+        function connect() {
+            ws = new WebSocket("ws://localhost:8000/ws");
+            ws.binaryType = "arraybuffer";
+
+            ws.onopen = () => {
+                statusDot.classList.add('online');
+                statusText.innerText = "Connected";
+            };
+
+            ws.onclose = () => {
+                statusDot.classList.remove('online');
+                statusText.innerText = "Disconnected";
+                setTimeout(connect, 3000); // Auto reconnect
+            };
+
+            ws.onmessage = async (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    // Bot Audio Response
+                    const audioBlob = new Blob([event.data], { type: "audio/wav" });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    addMessage("Responded with audio", 'bot');
+                    audio.play();
+                } else {
+                    // Bot Text Response
+                    const data = event.data;
+                    addMessage(data, 'bot');
+                }
+            };
+        }
+
+        // Mode Switching
+        textModeBtn.onclick = () => {
+            currentMode = 'text';
+            textModeBtn.classList.add('active');
+            voiceModeBtn.classList.remove('active');
+            voiceBtn.style.display = 'none';
+            sendBtn.style.display = 'flex';
+            textInput.style.display = 'block';
+            textInput.placeholder = "Type your message...";
+        };
+
+        voiceModeBtn.onclick = () => {
+            currentMode = 'voice';
+            voiceModeBtn.classList.add('active');
+            textModeBtn.classList.remove('active');
+            voiceBtn.style.display = 'flex';
+            sendBtn.style.display = 'none';
+            textInput.style.display = 'block'; // Keep input to show transcription?
+            textInput.placeholder = "Hold the mic to speak";
+        };
+
+        // Initialize UI
+        textModeBtn.onclick();
+
+        function addMessage(text, side) {
+            const div = document.createElement('div');
+            div.className = `message ${side === 'user' ? 'user-msg' : 'bot-msg'}`;
+            div.innerText = text;
+            chatWindow.appendChild(div);
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        function sendMessage() {
+            const text = textInput.value.trim();
+            if (!text || ws.readyState !== WebSocket.OPEN) return;
+
+            addMessage(text, 'user');
+            ws.send(JSON.stringify({
+                type: "text",
+                conversation_id: convId,
+                message: text
+            }));
+            textInput.value = '';
+        }
+
+        // --- Voice Logic ---
+        let isRecording = false;
+
+        async function startRecording() {
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                const buffer = await audioBlob.arrayBuffer();
+
+                // Control message
+                ws.send(JSON.stringify({
+                    type: "audio",
+                    conversation_id: convId
+                }));
+                // Data
+                ws.send(buffer);
+                addMessage("🎤 Voice message sent", 'user');
+            };
+
+            mediaRecorder.start();
+            isRecording = true;
+            voiceBtn.classList.add('recording');
+            visualizer.style.display = 'flex';
+            animateVisualizer();
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                voiceBtn.classList.remove('recording');
+                visualizer.style.display = 'none';
+            }
+        }
+
+        function animateVisualizer() {
+            if (!isRecording) return;
+            const bars = document.querySelectorAll('.bar');
+            bars.forEach(bar => {
+                const h = 5 + Math.random() * 25;
+                bar.style.height = `${h}px`;
+            });
+            setTimeout(animateVisualizer, 100);
+        }
+
+        // Event Listeners
+        sendBtn.onclick = sendMessage;
+        textInput.onkeypress = (e) => e.key === 'Enter' && sendMessage();
+
+        voiceBtn.onmousedown = startRecording;
+        window.onmouseup = stopRecording; // Global up to catch drag-out
+
+        // Mobile touch support
+        voiceBtn.ontouchstart = (e) => { e.preventDefault(); startRecording(); };
+        voiceBtn.ontouchend = (e) => { e.preventDefault(); stopRecording(); };
+
+        connect();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,40 @@
+# backend/app/audio/tts.py
+
+import logging
+import tempfile
+from TTS.api import TTS
+from app.config import TTS_MODEL
+
+logger = logging.getLogger(__name__)
+
+
+class TextToSpeech:
+    """
+    Converts text into spoken audio (wav bytes).
+    """
+
+    def __init__(self, model_name: str = TTS_MODEL):
+        logger.info(f"Initializing TTS model: {model_name}")
+        try:
+            self.tts = TTS(model_name=model_name)
+            logger.info("TTS model initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize TTS model: {e}")
+            raise e
+
+    def synthesize(self, text: str) -> bytes:
+        logger.info("Synthesizing audio...")
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fp:
+                temp_path = fp.name
+            
+            self.tts.tts_to_file(text=text, file_path=temp_path)
+            
+            with open(temp_path, "rb") as f:
+                audio_data = f.read()
+            
+            logger.info(f"Synthesis complete. Size: {len(audio_data)} bytes")
+            return audio_data
+        except Exception as e:
+            logger.error(f"Synthesis error: {e}")
+            raise e

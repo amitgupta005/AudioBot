@@ -1,113 +1,81 @@
-const chatArea = document.getElementById('chatArea');
-const messageInput = document.getElementById('messageInput');
-const sendButton = document.getElementById('sendButton');
-const connectionStatus = document.getElementById('connectionStatus');
+const chat = document.getElementById("chat");
+const textInput = document.getElementById("textInput");
 
-let socket;
-let isConnected = false;
+// const ws = new WebSocket("ws://localhost:8000/ws");
+const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+ws.binaryType = "arraybuffer";
 
-// Connect to WebSocket
-function connect() {
-    socket = new WebSocket('ws://localhost:8000/ws');
+const conversationId = "user-session-1"; // later auto-generated
 
-    socket.onopen = () => {
-        isConnected = true;
-        updateStatus(true);
-        sendButton.disabled = false;
-        console.log("Connected to WebSocket");
-    };
+ws.onopen = () => {
+    console.log("✅ WebSocket connected");
+};
 
-    socket.onmessage = (event) => {
-        removeTypingIndicator();
-        addMessage(event.data, 'bot');
-    };
+ws.onerror = (err) => {
+    console.error("❌ WebSocket error", err);
+};
 
-    socket.onclose = () => {
-        isConnected = false;
-        updateStatus(false);
-        sendButton.disabled = true;
-        console.log("Disconnected. Retrying in 3s...");
-        setTimeout(connect, 3000);
-    };
+ws.onclose = () => {
+    console.log("⚠️ WebSocket closed");
+};
 
-    socket.onerror = (error) => {
-        console.error("WebSocket Error:", error);
-    };
-}
 
-function updateStatus(connected) {
-    if (connected) {
-        connectionStatus.className = 'status-indicator connected';
-        connectionStatus.querySelector('.text').textContent = 'Live';
+ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+        const blob = new Blob([event.data], { type: "audio/wav" });
+        const audio = new Audio(URL.createObjectURL(blob));
+        audio.play();
     } else {
-        connectionStatus.className = 'status-indicator disconnected';
-        connectionStatus.querySelector('.text').textContent = 'Offline';
+        addMessage("AI", event.data);
     }
+};
+
+function addMessage(sender, text) {
+    const div = document.createElement("div");
+    div.className = "message";
+    div.innerHTML = `<span class="${sender === "You" ? "user" : "ai"}">${sender}:</span> ${text}`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
 }
 
-function addMessage(text, sender) {
-    const messageDiv = document.createElement('div');
-    messageDiv.classList.add('message', sender);
+document.getElementById("sendText").onclick = () => {
+    const text = textInput.value;
+    if (!text) return;
 
-    const bubble = document.createElement('div');
-    bubble.classList.add('bubble');
-    bubble.textContent = text; // Text content prevents XSS
+    addMessage("You", text);
 
-    const time = document.createElement('div');
-    time.classList.add('timestamp');
-    time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    ws.send(JSON.stringify({
+        type: "text",
+        conversation_id: conversationId,
+        message: text
+    }));
 
-    messageDiv.appendChild(bubble);
-    messageDiv.appendChild(time);
-    chatArea.appendChild(messageDiv);
+    textInput.value = "";
+};
 
-    // Remove welcome message if it exists
-    const welcome = document.querySelector('.welcome-message');
-    if (welcome) welcome.remove();
+let recorder;
+let chunks = [];
 
-    scrollToBottom();
-}
+document.getElementById("startVoice").onclick = async () => {
+    chunks = [];
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recorder = new MediaRecorder(stream);
+    recorder.start();
+    recorder.ondataavailable = e => chunks.push(e.data);
+};
 
-function addTypingIndicator() {
-    const messageDiv = document.createElement('div');
-    messageDiv.classList.add('message', 'bot', 'typing-message');
-    
-    const bubble = document.createElement('div');
-    bubble.classList.add('bubble', 'typing-indicator');
-    bubble.innerHTML = '<span></span><span></span><span></span>';
-    
-    messageDiv.appendChild(bubble);
-    chatArea.appendChild(messageDiv);
-    scrollToBottom();
-}
+document.getElementById("stopVoice").onclick = async () => {
+    recorder.stop();
 
-function removeTypingIndicator() {
-    const typingMsg = document.querySelector('.typing-message');
-    if (typingMsg) typingMsg.remove();
-}
+    recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: "audio/wav" });
+        const buffer = await blob.arrayBuffer();
 
-function scrollToBottom() {
-    chatArea.scrollTop = chatArea.scrollHeight;
-}
+        ws.send(JSON.stringify({
+            type: "audio",
+            conversation_id: conversationId
+        }));
 
-function sendMessage() {
-    const text = messageInput.value.trim();
-    if (text && isConnected) {
-        addMessage(text, 'user');
-        addTypingIndicator();
-        socket.send(text);
-        messageInput.value = '';
-    }
-}
-
-// Event Listeners
-sendButton.addEventListener('click', sendMessage);
-
-messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        sendMessage();
-    }
-});
-
-// Initial Connection
-connect();
+        ws.send(buffer);
+    };
+};

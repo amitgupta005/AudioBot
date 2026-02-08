@@ -3,76 +3,27 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>WebSocket AI Test</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
-        }
-
-        #log {
-            border: 1px solid #ccc;
-            padding: 10px;
-            height: 300px;
-            overflow-y: auto;
-            margin-bottom: 10px;
-            white-space: pre-wrap;
-        }
-
-        input {
-            width: 80%;
-            padding: 8px;
-        }
-
-        button {
-            padding: 8px 12px;
-        }
-    </style>
+    <title>AudioBot</title>
+    <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
 
-    <h2>WebSocket AI Test</h2>
+    <div id="app">
+        <h2>AudioBot</h2>
 
-    <div id="log"></div>
+        <div id="chat"></div>
 
-    <input id="input" type="text" placeholder="Type a message..." />
-    <button onclick="sendMessage()">Send</button>
+        <div id="controls">
+            <input id="textInput" type="text" placeholder="Type a message..." />
+            <button id="sendText">Send</button>
 
-    <script>
-        const log = document.getElementById("log");
-        const input = document.getElementById("input");
+            <button id="startVoice">🎤 Start</button>
+            <button id="stopVoice">⏹ Stop</button>
+        </div>
+    </div>
 
-        const ws = new WebSocket("ws://localhost:8000/ws");
-
-        ws.onopen = () => {
-            logMessage("Connected to server");
-        };
-
-        ws.onmessage = (event) => {
-            logMessage("AI: " + event.data);
-        };
-
-        ws.onerror = (err) => {
-            logMessage("WebSocket error");
-            console.error(err);
-        };
-
-        function sendMessage() {
-            const text = input.value;
-            if (!text) return;
-
-            logMessage("You: " + text);
-            ws.send(text);
-            input.value = "";
-        }
-
-        function logMessage(message) {
-            log.textContent += message + "\n";
-            log.scrollTop = log.scrollHeight;
-        }
-    </script>
-
+    <script src="app.js"></script>
 </body>
 
 </html>
