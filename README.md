@@ -96,6 +96,8 @@ AudioBot/
 3.  **Open the app**:
     Open your web browser and navigate to: `http://[IP_ADDRESS]`
 
+    `IP_ADDRESS = 127.0.0.1`
+
 ## 🔌 API Endpoints
 
 The backend exposes the following endpoints:
