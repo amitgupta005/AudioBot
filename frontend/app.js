@@ -26,7 +26,16 @@ ws.onmessage = (event) => {
         const audio = new Audio(URL.createObjectURL(blob));
         audio.play();
     } else {
-        addMessage("AI", event.data);
+        try {
+            const data = JSON.parse(event.data);
+            if (data.sender && data.text) {
+                addMessage(data.sender, data.text);
+            } else {
+                console.log("Unknown message format:", data);
+            }
+        } catch (e) {
+            addMessage("AI", event.data);
+        }
     }
 };
 

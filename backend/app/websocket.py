@@ -85,6 +85,15 @@ async def websocket_handler(websocket: WebSocket):
                     "output": "",
                 }
 
+                # If it was an audio message, send the transcription to the UI
+                if msg_type == "audio":
+                    await websocket.send_text(json.dumps({
+                        "sender": "You",
+                        "text": user_text,
+                        "type": "transcription"
+                    }))
+
+                # Use non-streaming invoke
                 result = agent.invoke(state)
 
                 # Persist updated conversation
@@ -93,19 +102,23 @@ async def websocket_handler(websocket: WebSocket):
                     result["conversation"],
                 )
 
-                # Respond based on input type
+                # Send text response as JSON
+                await websocket.send_text(json.dumps({
+                    "sender": "AI",
+                    "text": result["output"],
+                    "type": "response"
+                }))
+
+                # Respond with audio if input was audio
                 if msg_type == "audio":
                     # Text → Speech
                     logger.info("Synthesizing audio response...")
                     audio_response = tts.synthesize(result["output"])
                     # Send audio back
                     await websocket.send_bytes(audio_response)
-                else:
-                    # Send text response
-                    await websocket.send_text(result["output"])
 
             except Exception as e:
-                logger.error(f"Agent/TTS Error: {e}")
+                logger.error(f"Agent Error: {e}")
                 await websocket.send_text(json.dumps({"error": "Processing failed"}))
 
     except Exception as e:
