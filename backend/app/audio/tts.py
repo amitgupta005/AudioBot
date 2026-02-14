@@ -22,13 +22,32 @@ class TextToSpeech:
             logger.error(f"Failed to initialize TTS model: {e}")
             raise e
 
+    def _clean_text(self, text: str) -> str:
+        """
+        Removes markdown characters and emojis that cause TTS to crash.
+        """
+        import re
+        # Remove bold/italic markdown (asterisks)
+        text = text.replace("**", "").replace("*", "")
+        # Remove emojis (common range)
+        text = re.sub(r'[^\x00-\x7F]+', '', text)
+        # Clean up whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+
     def synthesize(self, text: str) -> bytes:
-        logger.info("Synthesizing audio...")
+        logger.info(f"Synthesizing audio for: {text[:50]}...")
+        cleaned_text = self._clean_text(text)
+        
+        if not cleaned_text:
+            logger.warning("Cleaned text is empty, nothing to synthesize.")
+            return b""
+
         try:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fp:
                 temp_path = fp.name
             
-            self.tts.tts_to_file(text=text, file_path=temp_path)
+            self.tts.tts_to_file(text=cleaned_text, file_path=temp_path)
             
             with open(temp_path, "rb") as f:
                 audio_data = f.read()

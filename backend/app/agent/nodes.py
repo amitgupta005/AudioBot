@@ -1,12 +1,19 @@
 # backend/app/agent/nodes.py
 
-# from langchain_community.llms import Ollama
-from langchain_ollama import ChatOllama
+# from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 from app.agent.state import AgentState
-from app.config import OLLAMA_MODEL
+from app.config import GROQ_MODEL
 from app.agent.tools import get_current_time
 
-llm = ChatOllama(model=OLLAMA_MODEL)
+llm = ChatGroq(
+    model=GROQ_MODEL,
+    temperature=0,
+    max_tokens=None,
+    reasoning_format="parsed",
+    timeout=None,
+    max_retries=2,
+)
 
 ALLOWED_INTENTS = {"chat", "tool", "clarify"}
 

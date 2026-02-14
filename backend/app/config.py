@@ -1,5 +1,11 @@
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+
 # LLM configuration
-OLLAMA_MODEL = "llama3.1"
+GROQ_MODEL = "qwen/qwen3-32b"
 
 # Audio configuration
 STT_MODEL = "base"
