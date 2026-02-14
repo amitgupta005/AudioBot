@@ -14,6 +14,9 @@ class AgentState(TypedDict):
     # full conversation history
     conversation: List[str]
 
+    # system message instruction
+    system_message: Optional[str]
+
     # classified intent (e.g., chat, tool, clarify)
     intent: Optional[str]
 

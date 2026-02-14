@@ -1,9 +1,9 @@
 # backend/app/agent/nodes.py
 
-# from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.agent.state import AgentState
-from app.config import GROQ_MODEL
+from app.config import GROQ_MODEL, DEFAULT_SYSTEM_PROMPT
 from app.agent.tools import get_current_time
 
 llm = ChatGroq(
@@ -19,9 +19,8 @@ ALLOWED_INTENTS = {"chat", "tool", "clarify"}
 
 
 def intent_classifier_node(state: AgentState) -> AgentState:
+    system_instruction = "You are an intent classifier."
     prompt = f"""
-You are an intent classifier.
-
 Labels:
 - tool: ONLY for questions about the current time.
 - clarify: If the user input is gibberish or impossible to understand.
@@ -32,8 +31,12 @@ User input:
 
 Return ONLY the label.
 """
-    # intent = llm.invoke(prompt).strip().lower()
-    raw_response = llm.invoke(prompt).content.strip().lower()
+    messages = [
+        SystemMessage(content=system_instruction),
+        HumanMessage(content=prompt)
+    ]
+    
+    raw_response = llm.invoke(messages).content.strip().lower()
     print(f"DEBUG: User Input='{state['user_input']}' | Raw Intent='{raw_response}'")
 
     if "tool" in raw_response:
@@ -77,12 +80,21 @@ def tool_node(state: AgentState) -> AgentState:
 
 
 def chat_node(state: AgentState) -> AgentState:
-    history = "\n".join(state["conversation"])
-    prompt = f"""{history}
-User: {state['user_input']}
-Assistant:"""
+    system_prompt = state.get("system_message") or DEFAULT_SYSTEM_PROMPT
+    
+    messages = [SystemMessage(content=system_prompt)]
+    
+    # Process history
+    for msg in state["conversation"]:
+        if msg.startswith("User: "):
+            messages.append(HumanMessage(content=msg.replace("User: ", "", 1)))
+        elif msg.startswith("Assistant: "):
+            messages.append(AIMessage(content=msg.replace("Assistant: ", "", 1)))
+            
+    # Add current user input
+    messages.append(HumanMessage(content=state['user_input']))
 
-    response = llm.invoke(prompt).content
+    response = llm.invoke(messages).content
 
     state["conversation"].append(f"User: {state['user_input']}")
     state["conversation"].append(f"Assistant: {response}")

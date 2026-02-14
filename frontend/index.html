@@ -3,24 +3,67 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>AudioBot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AudioBot - AI Assistant</title>
     <link rel="stylesheet" href="styles.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet" />
 </head>
 
 <body>
+    <div class="glass-container">
+        <header>
+            <div class="logo">
+                <span class="logo-icon">🤖</span>
+                <h1>AudioBot</h1>
+            </div>
+            <div class="session-badge">
+                ID: <span id="conversationIdDisplay">...</span>
+            </div>
+        </header>
 
-    <div id="app">
-        <h2>AudioBot</h2>
-
-        <div id="chat"></div>
-
-        <div id="controls">
-            <input id="textInput" type="text" placeholder="Type a message..." />
-            <button id="sendText">Send</button>
-
-            <button id="startVoice">🎤 Start</button>
-            <button id="stopVoice">⏹ Stop</button>
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="chat">Chat</button>
+            <button class="tab-btn" data-tab="history">History</button>
         </div>
+
+        <main>
+            <!-- Chat View -->
+            <section id="chat-view" class="tab-pane active">
+                <div id="chat-messages" class="scroll-area">
+                </div>
+
+                <button id="scrollToBottom" class="scroll-down-btn" title="Scroll to Bottom">
+                    ↓
+                </button>
+
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <input id="textInput" type="text" placeholder="Ask me anything..." autocomplete="off" />
+                        <button id="sendText" class="icon-btn" title="Send message">
+                            <span class="btn-icon">↗</span>
+                        </button>
+                    </div>
+
+                    <div class="voice-controls">
+                        <button id="voiceControl" class="voice-btn">
+                            <span class="mic-icon">🎤</span>
+                            <span class="voice-status">Press to Record</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- History View -->
+            <section id="history-view" class="tab-pane">
+                <div class="history-header">
+                    <h3>Recent Conversations</h3>
+                    <button id="clearHistory" class="text-link">Clear All</button>
+                </div>
+                <div id="history-list" class="scroll-area">
+                    <!-- History items injected here -->
+                </div>
+            </section>
+        </main>
     </div>
 
     <script src="app.js"></script>

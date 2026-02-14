@@ -7,6 +7,7 @@ from app.agent.graph import build_agent
 from app.memory.store import MemoryStore
 from app.audio.stt import SpeechToText
 from app.audio.tts import TextToSpeech
+from app.config import DEFAULT_SYSTEM_PROMPT
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +82,7 @@ async def websocket_handler(websocket: WebSocket):
                 state = {
                     "user_input": user_text,
                     "conversation": conversation,
+                    "system_message": DEFAULT_SYSTEM_PROMPT,
                     "intent": None,
                     "output": "",
                 }

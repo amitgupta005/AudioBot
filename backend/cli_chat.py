@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.agent.graph import build_agent
 from app.agent.state import AgentState
 from app.memory.store import MemoryStore
+from app.config import DEFAULT_SYSTEM_PROMPT
 
 def main():
     print("Initializing AudioBot Agent...")
@@ -39,6 +40,7 @@ def main():
             state = AgentState(
                 user_input=user_input,
                 conversation=conversation,
+                system_message=DEFAULT_SYSTEM_PROMPT,
                 output="",
                 intent=None
             )
