@@ -1,0 +1,28 @@
+# backend/app/agent/state.py
+
+from typing import TypedDict, List, Optional
+
+
+class AgentState(TypedDict):
+    """
+    Single source of truth for the agent state.
+    """
+
+    # user input for current turn
+    user_input: str
+
+    # full conversation history
+    conversation: List[str]
+
+    # system message instruction
+    system_message: Optional[str]
+
+    # classified intent (e.g., chat, tool, clarify)
+    intent: Optional[str]
+
+    # structured response parts
+    acknowledgement: Optional[str]
+    analysis: Optional[dict]
+
+    # final response returned to client
+    output: str
