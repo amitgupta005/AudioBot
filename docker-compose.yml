@@ -1,20 +1,31 @@
 version: '3.9'
 
 services:
-  # ─── Infrastructure ────────────────────────────────────────
   mongodb:
-    image: mongo:7
+    image: mongo:7 # MongoDB doesn't have an official tiny 'alpine' version, so we must limit its logs/RAM instead
     container_name: audiobot-mongo
     restart: unless-stopped
     ports:
-      - "2000:2000"
+      - "2000:27017"
     volumes:
       - mongo-data:/data/db
     environment:
       MONGO_INITDB_DATABASE: audiobot
+    # Prevents log files from growing infinitely and eating disk space
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Caps RAM and CPU usage so it doesn't slow down your machine
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine # This '-alpine' tag ensures you are using the smallest possible image (~30MB)
     container_name: audiobot-redis
     restart: unless-stopped
     ports:
@@ -22,50 +33,16 @@ services:
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes
-
-  # ─── FastAPI Backend (existing — untouched) ────────────────
-  fastapi:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: audiobot-fastapi
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - SYSTEM_PROMPT=${SYSTEM_PROMPT}
-      - REDIS_URL=redis://redis:6379
-      - INTERNAL_SECRET=${INTERNAL_SECRET}
-    depends_on:
-      - redis
-    volumes:
-      - ./backend:/app
-
-  # ─── Node.js Middleware ────────────────────────────────────
-  middleware:
-    build:
-      context: ./node-middleware
-      dockerfile: Dockerfile
-    container_name: audiobot-middleware
-    restart: unless-stopped
-    ports:
-      - "4001:4001"
-    environment:
-      - NODE_ENV=production
-      - PORT=4001
-      - FASTAPI_URL=http://fastapi:8000
-      - MONGODB_URI=mongodb://localhost:2000
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
-      - ADMIN_EMAIL=${ADMIN_EMAIL}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
-    depends_on:
-      - mongodb
-      - redis
-      - fastapi
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
 
 volumes:
   mongo-data:
