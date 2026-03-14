@@ -1,0 +1,9 @@
+# 1. Ignore ABSOLUTELY EVERYTHING
+*
+
+# 2. ALLOW ONLY the specific files FastAPI needs to build
+!main.py
+!requirements.txt
+!app/
+!Dockerfile
+!.dockerignore
