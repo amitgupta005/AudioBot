@@ -40,7 +40,7 @@
 #                 data = json.loads(raw)
 #             except WebSocketDisconnect:
 #                 logger.info("WebSocket disconnected.")
-#                 break
+#               break
 #             except json.JSONDecodeError:
 #                 logger.warning("Received invalid JSON payload.")
 #                 await websocket.send_text(json.dumps({"error": "Invalid JSON"}))

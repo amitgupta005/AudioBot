@@ -23,3 +23,6 @@ dependencies = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
+
+[tool.fastapi]
+entrypoint = "backend.main:app"
