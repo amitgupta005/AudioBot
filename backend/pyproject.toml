@@ -4,20 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "audiobot-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backend for AudioBot using FastAPI and LangGraph"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
+    "fastapi[standard]",
     "uvicorn",
     "langgraph",
     "langchain-core",
     "langchain-openai",
+    "langchain-groq",
     "python-dotenv",
     "websockets",
     "langchain",
-    "ollama",
-    "langchain-community"
+    "langchain-community",
+    "redis",
+    "langgraph-checkpoint-redis",
+    "edge-tts",
+    "pdfplumber",
+    "pydantic",
+    "numpy",
+    "sounddevice",
+    "soundfile",
 ]
 
 [tool.setuptools.packages.find]
@@ -25,4 +33,4 @@ where = ["."]
 include = ["app*"]
 
 [tool.fastapi]
-entrypoint = "backend.main:app"
+entrypoint = "app.main:app"

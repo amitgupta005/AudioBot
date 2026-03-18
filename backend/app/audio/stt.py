@@ -1,5 +1,6 @@
 # backend/app/audio/stt.py
 
+import os
 import logging
 import tempfile
 from faster_whisper import WhisperModel
@@ -28,6 +29,7 @@ class SpeechToText:
 
     def transcribe(self, audio_bytes: bytes, language: str = "en") -> str:
         logger.info(f"Starting transcription (language={language})...")
+        file_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fp:
                 fp.write(audio_bytes)
@@ -41,3 +43,7 @@ class SpeechToText:
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             raise e
+        finally:
+            # Clean up the temp file to prevent leaks
+            if file_path and os.path.exists(file_path):
+                os.unlink(file_path)
