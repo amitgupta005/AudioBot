@@ -64,19 +64,28 @@ class AudioModuleTests(unittest.TestCase):
         stt = SpeechToText()
 
         deleted_paths = []
+        created_paths = []
         original_unlink = os.unlink
+        original_named_tempfile = tempfile.NamedTemporaryFile
 
         def tracking_unlink(path):
             deleted_paths.append(path)
             original_unlink(path)
 
-        with patch("app.audio.stt.os.unlink", side_effect=tracking_unlink):
-            text = stt.transcribe(b"wav-bytes")
+        def tracking_named_tempfile(*args, **kwargs):
+            temp_file = original_named_tempfile(*args, **kwargs)
+            created_paths.append(temp_file.name)
+            return temp_file
+
+        with patch("app.audio.stt.tempfile.NamedTemporaryFile", side_effect=tracking_named_tempfile):
+            with patch("app.audio.stt.os.unlink", side_effect=tracking_unlink):
+                text = stt.transcribe(b"wav-bytes")
 
         self.assertEqual(text, "Hello world")
         self.assertEqual(len(stt.model.calls), 1)
-        self.assertEqual(len(deleted_paths), 1)
-        self.assertFalse(os.path.exists(deleted_paths[0]))
+        self.assertEqual(len(created_paths), 1)
+        self.assertIn(created_paths[0], deleted_paths)
+        self.assertFalse(os.path.exists(created_paths[0]))
 
     def test_tts_clean_text_removes_markdown_and_non_ascii(self):
         tts = TextToSpeech()
