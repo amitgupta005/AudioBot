@@ -6,7 +6,7 @@ langchain-openai
 python-dotenv
 websockets
 langchain
-ollama
+pyPDF2
 langchain-community
 redis
 langchain-ollama
@@ -18,5 +18,3 @@ torchcodec
 coqui-tts==0.27.5
 edge-tts
 transformers>=4.57.0
-pyPDF2
-python-multipart
