@@ -142,6 +142,9 @@ class MainAdminTests(unittest.TestCase):
         self.assertEqual(payload["conversation_id"], "thread-1")
         self.assertEqual(payload["messages"][0]["data"]["content"], "Hi")
         self.assertEqual(payload["context"], {"jd_text": "JD", "resume_text": "Resume"})
+        self.assertIn("{jd_text}", payload["system_message"]["template"])
+        self.assertIn("JD", payload["system_message"]["resolved"])
+        self.assertIn("Resume", payload["system_message"]["resolved"])
 
     def test_get_conversation_returns_404_when_missing(self):
         response = self.client.get("/admin/conversations/unknown")

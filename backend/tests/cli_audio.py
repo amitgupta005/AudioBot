@@ -82,9 +82,9 @@ def play_audio(audio_bytes: bytes) -> None:
 
 
 async def main_async() -> None:
-    print("--- AudioBot Voice CLI (Session: cli-audio-session) ---")
+    print("--- AudioBot Voice CLI (Session: cli-audio-session-2) ---")
     
-    conversation_id = os.getenv("AUDIOBOT_AUDIO_SESSION_ID", "cli-audio-session")
+    conversation_id = os.getenv("AUDIOBOT_AUDIO_SESSION_ID", "cli-audio-session-2")
     config = {"configurable": {"thread_id": conversation_id}}
 
     print("Controls:")

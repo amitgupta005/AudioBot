@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.dependencies import agent
 from app.websocket import websocket_handler
-from app.config import APP_NAME, APP_VERSION
+from app.config import APP_NAME, APP_VERSION, SYSTEM_MESSAGE
 
 # Configure logging ONCE for the entire application
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +57,25 @@ def _initialize_thread_state(session_id: str, new_values: dict):
             **new_values
         }
         agent.invoke(initial_state, config=config)
+
+
+def _resolve_system_message(channel_values: dict) -> dict:
+    system_template = channel_values.get("system_message") or SYSTEM_MESSAGE
+    jd_text = channel_values.get("jd_text")
+    resume_text = channel_values.get("resume_text")
+
+    if jd_text and resume_text and "{" in system_template:
+        try:
+            resolved = system_template.format(jd_text=jd_text, resume_text=resume_text)
+        except Exception:
+            resolved = system_template
+    else:
+        resolved = system_template
+
+    return {
+        "template": system_template,
+        "resolved": resolved,
+    }
 
 
 # ============================================================
@@ -160,7 +179,8 @@ def get_conversation(conversation_id: str):
                 "context": {
                     "jd_text": channel_values.get("jd_text"),
                     "resume_text": channel_values.get("resume_text"),
-                }
+                },
+                "system_message": _resolve_system_message(channel_values),
             }
     except Exception as e:
         logger.error(f"Error reading checkpoint: {e}")
