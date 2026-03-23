@@ -3,20 +3,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import useAdminStore from '../store/adminStore';
 
-export default function AdminLogin() {
-  const [form, setForm] = useState({ email: '', password: '' });
+export default function AdminSignup() {
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
-  const { login } = useAdminStore();
+  const { register } = useAdminStore();
   const navigate = useNavigate();
 
   const handle = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(form.email, form.password);
+      await register(form.name, form.email, form.password);
       navigate('/');
     } catch (err) {
-      toast.error(err.response?.data?.message || err.message || 'Login failed');
+      toast.error(err.response?.data?.message || err.message || 'Signup failed');
     } finally {
       setLoading(false);
     }
@@ -39,24 +39,29 @@ export default function AdminLogin() {
         .btn:hover:not(:disabled) { background: #4a78f7; transform: translateY(-1px); }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .hint { margin-top: 20px; padding: 14px; background: rgba(59,108,244,0.06); border: 1px solid rgba(59,108,244,0.15); border-radius: 8px; font-size: 12px; color: rgba(255,255,255,0.3); line-height: 1.6; }
+        .hint a { color: rgba(255,255,255,0.8); text-decoration: underline; }
       `}</style>
       <div className="login-wrap">
         <div className="login-tag">// AudioBot Administration</div>
-        <div className="login-title">Admin Panel</div>
-        <div className="login-sub">Restricted access. Admin credentials required.</div>
+        <div className="login-title">Company Signup</div>
+        <div className="login-sub">Create a company account to manage your jobs and conversations.</div>
         <form onSubmit={handle}>
           <div className="field">
+            <label>Company Name</label>
+            <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Acme Inc" required />
+          </div>
+          <div className="field">
             <label>Email</label>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="admin@audiobot.com" required />
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="hello@company.com" required />
           </div>
           <div className="field">
             <label>Password</label>
             <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" required />
           </div>
-          <button className="btn" disabled={loading}>{loading ? 'Authenticating...' : 'Access Panel →'}</button>
+          <button className="btn" disabled={loading}>{loading ? 'Creating account...' : 'Sign up & enter panel →'}</button>
         </form>
         <div className="hint">
-          Don't have an account? <Link to="/signup">Sign up as a company</Link>.
+          Already have an account? <Link to="/login">Sign in</Link>
         </div>
       </div>
     </div>

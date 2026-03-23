@@ -29,6 +29,7 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
+  register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
   me: () => api.get('/auth/me'),
 };
@@ -38,6 +39,7 @@ export const adminApi = {
   // Users
   getUsers: (params) => api.get('/admin/users', { params }),
   getUser: (id) => api.get(`/admin/users/${id}`),
+  createUser: (data) => api.post('/admin/users', data),
   banUser: (id, reason) => api.post(`/admin/users/${id}/ban`, { reason }),
   unbanUser: (id) => api.post(`/admin/users/${id}/unban`),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
@@ -48,9 +50,20 @@ export const adminApi = {
   // Sessions
   getSessions: () => api.get('/admin/sessions'),
   terminateSession: (sessionId) => api.delete(`/admin/sessions/${sessionId}`),
+  // Jobs
+  getJobs: (params) => api.get('/admin/jobs', { params }),
+  getJob: (jobId) => api.get(`/admin/jobs/${jobId}`),
+  getJobConversations: (jobId, params) => api.get(`/admin/jobs/${jobId}/conversations`, { params }),
   // Config
   getConfig: () => api.get('/admin/config'),
   updateConfig: (updates) => api.put('/admin/config', updates),
+};
+
+export const companyApi = {
+  getJobs: () => api.get('/company/jobs'),
+  createJob: (data) => api.post('/company/jobs', data),
+  getJob: (jobId) => api.get(`/company/jobs/${jobId}`),
+  getJobConversations: (jobId, params) => api.get(`/company/jobs/${jobId}/conversations`, { params }),
 };
 
 export default api;

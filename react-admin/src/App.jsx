@@ -4,8 +4,10 @@ import { Toaster } from 'react-hot-toast';
 import useAdminStore from './store/adminStore';
 import AdminLayout from './components/AdminLayout';
 import AdminLogin from './pages/AdminLogin';
+import AdminSignup from './pages/AdminSignup';
 import Dashboard from './pages/Dashboard';
 import UsersPage from './pages/UsersPage';
+import JobsPage from './pages/JobsPage';
 import ConversationsPage from './pages/ConversationsPage';
 import SessionsPage from './pages/SessionsPage';
 import ConfigPage from './pages/ConfigPage';
@@ -25,9 +27,11 @@ export default function App() {
       <Toaster position="top-right" toastOptions={{ style: { background: 'rgba(15,20,32,0.95)', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(20px)', fontFamily: "'Space Grotesk', sans-serif" } }} />
       <Routes>
         <Route path="/login" element={<AdminLogin />} />
+        <Route path="/signup" element={<AdminSignup />} />
         <Route path="/" element={<Guard><AdminLayout /></Guard>}>
           <Route index element={<Dashboard />} />
           <Route path="users" element={<UsersPage />} />
+          <Route path="jobs" element={<JobsPage />} />
           <Route path="conversations" element={<ConversationsPage />} />
           <Route path="sessions" element={<SessionsPage />} />
           <Route path="config" element={<ConfigPage />} />

@@ -13,13 +13,16 @@ const userSchema = new mongoose.Schema(
       match: [/^\S+@\S+\.\S+$/, 'Invalid email'],
     },
     password: { type: String, required: true, minlength: 8, select: false },
-    role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    role: { type: String, enum: ['user', 'company', 'admin'], default: 'user' },
     isActive: { type: Boolean, default: true },
     isBanned: { type: Boolean, default: false },
     banReason: { type: String, default: null },
     lastLogin: { type: Date, default: null },
     totalConversations: { type: Number, default: 0 },
     totalMessages: { type: Number, default: 0 },
+    // Associations for candidate users
+    jobId: { type: String, ref: 'Job', default: null, index: true },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
   },
   { timestamps: true }
 );

@@ -6,7 +6,7 @@ langchain-openai
 python-dotenv
 websockets
 langchain
-ollama
+python-multipart
 langchain-community
 redis
 langchain-ollama
@@ -15,6 +15,5 @@ faster-whisper
 torch
 torchaudio
 torchcodec
-coqui-tts==0.27.5
+PyPDF2
 edge-tts
-transformers>=4.57.0

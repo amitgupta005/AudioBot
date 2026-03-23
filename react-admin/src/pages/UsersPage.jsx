@@ -34,18 +34,69 @@ function BanModal({ user, onClose, onDone }) {
   );
 }
 
+function CreateCompanyModal({ onClose, onCreated }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleCreate = async () => {
+    if (!name.trim() || !email.trim() || !password.trim()) return toast.error('All fields are required');
+    setLoading(true);
+    try {
+      await adminApi.createUser({ name, email, password, role: 'company' });
+      toast.success('Company created');
+      onCreated();
+      onClose();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to create company');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+      <div style={{ background: '#0f1420', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 32, width: 420 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Create company account</div>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 20 }}>This company can create jobs and view candidate conversations.</div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Company name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Company name" style={{ width: '100%', padding: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="company@example.com" style={{ width: '100%', padding: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min 8 characters" style={{ width: '100%', padding: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={handleCreate} disabled={loading} style={{ flex: 1, padding: '10px', background: 'rgba(59,108,244,0.2)', border: '1px solid rgba(59,108,244,0.3)', borderRadius: 8, color: '#7c9ae0', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+            {loading ? 'Creating...' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [role, setRole] = useState('');
   const [page, setPage] = useState(1);
   const [banTarget, setBanTarget] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await adminApi.getUsers({ page, limit: 20, search: search || undefined });
+      const { data } = await adminApi.getUsers({ page, limit: 20, search: search || undefined, role: role || undefined });
       setUsers(data.users); setTotal(data.total);
     } finally { setLoading(false); }
   };
@@ -67,15 +118,35 @@ export default function UsersPage() {
   return (
     <div className="page">
       {banTarget && <BanModal user={banTarget} onClose={() => setBanTarget(null)} onDone={load} />}
-      <div className="page-title">Users</div>
-      <div className="page-sub">{total} registered users</div>
+      {showCreate && <CreateCompanyModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20 }}>
+        <div>
+          <div className="page-title">Users</div>
+          <div className="page-sub">{total} registered users</div>
+        </div>
+        <button onClick={() => setShowCreate(true)} style={{ padding: '10px 16px', borderRadius: 10, border: '1px solid rgba(59,108,244,0.4)', background: 'rgba(59,108,244,0.15)', color: '#7c9ae0', cursor: 'pointer', fontSize: 14, fontFamily: 'inherit' }}>
+          + Create company
+        </button>
+      </div>
 
-      <input
-        value={search}
-        onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-        placeholder="Search by name or email..."
-        style={{ width: '100%', maxWidth: 400, padding: '11px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none', marginBottom: 24 }}
-      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        <input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          placeholder="Search by name or email..."
+          style={{ flex: 1, minWidth: 240, padding: '11px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
+        />
+        <select
+          value={role}
+          onChange={(e) => { setRole(e.target.value); setPage(1); }}
+          style={{ padding: '11px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#e2e8f0', fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
+        >
+          <option value="">All roles</option>
+          <option value="user">Candidate</option>
+          <option value="company">Company</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
 
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

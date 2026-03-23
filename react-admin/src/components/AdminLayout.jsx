@@ -1,13 +1,25 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import useAdminStore from '../store/adminStore';
 
-const NAV = [
-  { to: '/', icon: '▤', label: 'Dashboard', end: true },
-  { to: '/users', icon: '◉', label: 'Users' },
-  { to: '/conversations', icon: '◈', label: 'Conversations' },
-  { to: '/sessions', icon: '◌', label: 'Live Sessions' },
-  { to: '/config', icon: '⚙', label: 'System Config' },
-];
+const getNav = (role) => {
+  const base = [
+    { to: '/', icon: '▤', label: 'Dashboard', end: true },
+  ];
+
+  if (role === 'admin') {
+    base.push({ to: '/users', icon: '◉', label: 'Users' });
+    base.push({ to: '/conversations', icon: '◈', label: 'Conversations' });
+    base.push({ to: '/sessions', icon: '◌', label: 'Live Sessions' });
+    base.push({ to: '/config', icon: '⚙', label: 'System Config' });
+  }
+
+  if (role === 'company') {
+    base.push({ to: '/jobs', icon: '🏷️', label: 'Jobs' });
+    base.push({ to: '/conversations', icon: '◈', label: 'Conversations' });
+  }
+
+  return base;
+};
 
 export default function AdminLayout() {
   const { user, logout } = useAdminStore();
@@ -49,7 +61,7 @@ export default function AdminLayout() {
           <div className="sb-title">🎙️ AudioBot</div>
         </div>
         <div className="sb-nav">
-          {NAV.map(({ to, icon, label, end }) => (
+          {getNav(user?.role).map(({ to, icon, label, end }) => (
             <NavLink key={to} to={to} end={end} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
               <span className="nav-icon">{icon}</span>
               {label}

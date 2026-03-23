@@ -40,4 +40,11 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireAdmin };
+const requireCompany = (req, res, next) => {
+  if (!req.user || req.user.role !== 'company') {
+    return res.status(403).json({ success: false, message: 'Company access required' });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireAdmin, requireCompany };

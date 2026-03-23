@@ -14,7 +14,7 @@ router.post('/register', async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Registration is currently disabled' });
     }
 
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
     }
@@ -27,7 +27,8 @@ router.post('/register', async (req, res, next) => {
       return res.status(409).json({ success: false, message: 'Email already in use' });
     }
 
-    const user = await User.create({ name, email, password });
+    const safeRole = role === 'company' ? 'company' : 'user';
+    const user = await User.create({ name, email, password, role: safeRole });
     const tokens = jwtService.generateTokens(user);
     const sessionId = await sessionService.create(user._id);
 

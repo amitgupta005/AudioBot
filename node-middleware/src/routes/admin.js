@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const User = require('../models/User');
+const Job = require('../models/Job');
 const SystemConfig = require('../models/SystemConfig');
 const SessionService = require('../services/sessionService');
 const ConversationService = require('../services/conversationService');
@@ -69,6 +70,32 @@ router.get('/users', async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// Create a new user (e.g., company account)
+router.post(
+  '/users',
+  [
+    body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 80 }),
+    body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+    body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+    body('role').optional().isIn(['user', 'company', 'admin']).withMessage('Invalid role'),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+    try {
+      const { name, email, password, role } = req.body;
+      const existing = await User.findOne({ email });
+      if (existing) return res.status(409).json({ success: false, message: 'Email already registered' });
+
+      const user = await User.create({ name, email, password, role: role || 'company' });
+      res.status(201).json({ success: true, user: user.toSafeObject() });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
 
 router.get('/users/:id', async (req, res) => {
   try {
@@ -141,9 +168,11 @@ router.delete('/users/:id', async (req, res) => {
 // ─── CONVERSATIONS ────────────────────────────────────────────────────────────
 router.get('/conversations', async (req, res) => {
   try {
-    const { page = 1, limit = 20, userId, isActive, search } = req.query;
+    const { page = 1, limit = 20, userId, companyId, jobId, isActive, search } = req.query;
     const filters = {};
     if (userId) filters.userId = userId;
+    if (companyId) filters.companyId = companyId;
+    if (jobId) filters.jobId = jobId;
     if (isActive !== undefined) filters.isActive = isActive === 'true';
     if (search) filters.search = search;
 
@@ -159,6 +188,43 @@ router.get('/conversations/:sessionId', async (req, res) => {
     const convo = await ConversationService.getConversationDetails(req.params.sessionId);
     if (!convo) return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, conversation: convo });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ─── JOBS ─────────────────────────────────────────────────────────────────────
+router.get('/jobs', async (req, res) => {
+  try {
+    const { companyId } = req.query;
+    const query = {};
+    if (companyId) query.companyId = companyId;
+    const jobs = await Job.find(query).sort({ createdAt: -1 });
+    res.json({ success: true, jobs });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/jobs/:jobId', async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.jobId);
+    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+    res.json({ success: true, job });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.get('/jobs/:jobId/conversations', async (req, res) => {
+  try {
+    const job = await Job.findById(req.params.jobId);
+    if (!job) return res.status(404).json({ success: false, message: 'Job not found' });
+
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 20);
+    const result = await ConversationService.getConversationsByJobId(job._id, page, limit);
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

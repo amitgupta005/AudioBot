@@ -15,6 +15,7 @@ const { createFastapiProxy, setupWebSocketProxy } = require('./middleware/proxy'
 const authRoutes = require('./routes/auth');
 const conversationRoutes = require('./routes/conversations');
 const adminRoutes = require('./routes/admin');
+const companyRoutes = require('./routes/company');
 
 const app = express();
 const server = http.createServer(app);
@@ -53,6 +54,9 @@ app.use('/api/conversations', conversationRoutes);
 
 // ─── Admin Routes ─────────────────────────────────────────────────────────────
 app.use('/api/admin', adminRoutes);
+
+// ─── Company Routes ───────────────────────────────────────────────────────────
+app.use('/api/company', companyRoutes);
 
 // ─── FastAPI Proxy (authenticated) ───────────────────────────────────────────
 // Injects session context, validates JWT, then proxies to FastAPI

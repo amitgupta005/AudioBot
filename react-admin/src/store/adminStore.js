@@ -11,7 +11,7 @@ const useAdminStore = create((set) => ({
     if (!token) { set({ isLoading: false }); return; }
     try {
       const { data } = await authApi.me();
-      if (data.user.role !== 'admin') throw new Error('Not admin');
+      if (!['admin', 'company'].includes(data.user.role)) throw new Error('Not admin');
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     } catch {
       localStorage.removeItem('adminAccessToken');
@@ -20,9 +20,18 @@ const useAdminStore = create((set) => ({
     }
   },
 
+  register: async (name, email, password) => {
+    const { data } = await authApi.register({ name, email, password, role: 'company' });
+    if (!['admin', 'company'].includes(data.user.role)) throw new Error('Admin access required');
+    localStorage.setItem('adminAccessToken', data.accessToken);
+    localStorage.setItem('adminRefreshToken', data.refreshToken);
+    set({ user: data.user, isAuthenticated: true });
+    return data;
+  },
+
   login: async (email, password) => {
     const { data } = await authApi.login({ email, password });
-    if (data.user.role !== 'admin') throw new Error('Admin access required');
+    if (!['admin', 'company'].includes(data.user.role)) throw new Error('Admin access required');
     localStorage.setItem('adminAccessToken', data.accessToken);
     localStorage.setItem('adminRefreshToken', data.refreshToken);
     set({ user: data.user, isAuthenticated: true });

@@ -5,7 +5,7 @@ import useAuthStore from '../store/authStore';
 
 export default function AuthPage() {
   const [mode, setMode] = useState('login');
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', jobId: '' });
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuthStore();
   const navigate = useNavigate();
@@ -18,7 +18,7 @@ export default function AuthPage() {
         await login(form.email, form.password);
         toast.success('Welcome back!');
       } else {
-        await register(form.name, form.email, form.password);
+        await register(form.name, form.email, form.password, form.jobId);
         toast.success('Account created!');
       }
       navigate('/chat');
@@ -57,10 +57,19 @@ export default function AuthPage() {
         <div className="auth-sub">{mode === 'login' ? 'Sign in to your account' : 'Create a new account'}</div>
         <form onSubmit={handle}>
           {mode === 'register' && (
-            <div className="field">
-              <label>Name</label>
-              <input placeholder="Your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            </div>
+            <>
+              <div className="field">
+                <label>Name</label>
+                <input placeholder="Your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              </div>
+              <div className="field">
+                <label>Job ID</label>
+                <input placeholder="Paste job ID" value={form.jobId} onChange={(e) => setForm({ ...form, jobId: e.target.value })} />
+                <div style={{ marginTop: 4, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                  Provide the job ID you were invited to (optional).
+                </div>
+              </div>
+            </>
           )}
           <div className="field">
             <label>Email</label>

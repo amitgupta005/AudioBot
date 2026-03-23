@@ -2,8 +2,8 @@ const Conversation = require('../models/Conversation');
 const User = require('../models/User');
 
 const ConversationService = {
-  async create(sessionId, userId, metadata = {}) {
-    const convo = new Conversation({ sessionId, userId, metadata });
+  async create(sessionId, userId, metadata = {}, jobId = null, companyId = null) {
+    const convo = new Conversation({ sessionId, userId, metadata, jobId, companyId });
     await convo.save();
     await User.findByIdAndUpdate(userId, { $inc: { totalConversations: 1 } });
     return convo;
@@ -59,6 +59,8 @@ const ConversationService = {
   async getAllConversations(page = 1, limit = 20, filters = {}) {
     const query = {};
     if (filters.userId) query.userId = filters.userId;
+    if (filters.companyId) query.companyId = filters.companyId;
+    if (filters.jobId) query.jobId = filters.jobId;
     if (filters.isActive !== undefined) query.isActive = filters.isActive;
     if (filters.search) query.title = { $regex: filters.search, $options: 'i' };
 
@@ -73,6 +75,14 @@ const ConversationService = {
       Conversation.countDocuments(query),
     ]);
     return { conversations, total, page, pages: Math.ceil(total / limit) };
+  },
+
+  async getConversationsByJobId(jobId, page = 1, limit = 20) {
+    return this.getAllConversations(page, limit, { jobId });
+  },
+
+  async getConversationsByCompanyId(companyId, page = 1, limit = 20) {
+    return this.getAllConversations(page, limit, { companyId });
   },
 
   async getStats() {

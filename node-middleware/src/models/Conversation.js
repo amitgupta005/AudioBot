@@ -15,6 +15,8 @@ const conversationSchema = new mongoose.Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    jobId: { type: String, ref: 'Job', default: null, index: true },
+    companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     title: { type: String, default: 'New Conversation' },
     messages: [messageSchema],
     messageCount: { type: Number, default: 0 },
