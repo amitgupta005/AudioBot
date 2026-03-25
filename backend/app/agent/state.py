@@ -1,6 +1,7 @@
 # backend/app/agent/state.py
 
 from typing import TypedDict, List, Optional
+from langchain_core.messages import BaseMessage
 
 
 class AgentState(TypedDict):
@@ -12,7 +13,7 @@ class AgentState(TypedDict):
     user_input: str
 
     # full conversation history
-    conversation: List[str]
+    conversation: List[BaseMessage]
 
     # system message instruction
     system_message: Optional[str]
@@ -20,9 +21,9 @@ class AgentState(TypedDict):
     # classified intent (e.g., chat, tool, clarify)
     intent: Optional[str]
 
-    # structured response parts
-    acknowledgement: Optional[str]
-    analysis: Optional[dict]
+    # JD and Resume texts
+    jd_text: Optional[str]
+    resume_text: Optional[str]
 
     # final response returned to client
     output: str

@@ -143,27 +143,29 @@
 # backend/app/main.py
 
 import io
-import PyPDF2
+import logging
+import pdfplumber
 from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import SystemMessage
 
+from app.dependencies import agent
 from app.websocket import websocket_handler
 from app.config import APP_NAME, APP_VERSION
-from app.memory.store import MemoryStore
+
+# Configure logging ONCE for the entire application
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development, allow all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-memory = MemoryStore()
 
 
 @app.websocket("/ws")
@@ -171,34 +173,143 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket_handler(websocket)
 
 
+def extract_pdf_text(file_bytes: bytes) -> str:
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        pages = [page.extract_text() for page in pdf.pages if page.extract_text()]
+    if not pages:
+        raise ValueError("No extractable text found in PDF.")
+    return "\n".join(pages)
+
+
+def _initialize_thread_state(session_id: str, new_values: dict):
+    """
+    Idiomatic LangGraph: Store state in the checkpointer.
+    If the thread doesn't exist, we seed it with an initial invoke.
+    """
+    config = {"configurable": {"thread_id": session_id}}
+    try:
+        agent.update_state(config, new_values)
+        logger.info(f"Updated state for thread {session_id}")
+    except Exception:
+        logger.info(f"Initializing new thread {session_id} with state {list(new_values.keys())}")
+        initial_state = {
+            "user_input": "SYSTEM_INITIALIZATION",
+            "conversation": [],
+            "intent": "clarify",
+            **new_values
+        }
+        agent.invoke(initial_state, config=config)
+
+
+# ============================================================
+# UPLOAD ENDPOINTS
+# ============================================================
+@app.post("/api/upload-resume")
+async def upload_resume(
+    resume: UploadFile = File(...),
+    session_id: str = Form(...),
+):
+    if resume.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF uploads are accepted.")
+
+    try:
+        resume_bytes = await resume.read()
+        resume_text = extract_pdf_text(resume_bytes)
+        _initialize_thread_state(session_id, {"resume_text": resume_text})
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "resume_chars": len(resume_text),
+            "message": "Resume uploaded and stored in agent state.",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
+@app.post("/api/upload-jd")
+async def upload_jd(
+    jd: UploadFile = File(...),
+    session_id: str = Form(...),
+):
+    if jd.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF uploads are accepted.")
+
+    try:
+        jd_bytes = await jd.read()
+        jd_text = extract_pdf_text(jd_bytes)
+        _initialize_thread_state(session_id, {"jd_text": jd_text})
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "jd_chars": len(jd_text),
+            "message": "Job description uploaded and stored in agent state.",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+
 # -----------------------
-# Admin API (Read-only)
+# Admin API
 # -----------------------
 
 @app.get("/admin/conversations")
 def list_conversations():
     """
-    Returns all known conversation IDs.
+    Returns unique conversation IDs from the LangGraph checkpointer.
     """
-    return {
-        "conversations": memory.list_conversations()
-    }
+    try:
+        unique_threads = set()
+        for checkpoint_tuple in agent.checkpointer.list(None):
+            thread_id = checkpoint_tuple.config.get("configurable", {}).get("thread_id")
+            if thread_id:
+                unique_threads.add(thread_id)
+
+        return {"conversations": sorted(list(unique_threads))}
+    except Exception as e:
+        logger.error(f"Error listing conversations: {e}")
+        return {"conversations": []}
 
 
 @app.get("/admin/conversations/{conversation_id}")
 def get_conversation(conversation_id: str):
     """
-    Returns the conversation history for a given ID.
+    Returns the conversation history and document context from the checkpointer.
     """
-    conversation = memory.get_conversation(conversation_id)
+    try:
+        config = {"configurable": {"thread_id": conversation_id}}
+        checkpoint_tuple = agent.checkpointer.get_tuple(config)
 
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        if checkpoint_tuple and checkpoint_tuple.checkpoint:
+            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+            conversation = channel_values.get("conversation", [])
 
-    return {
-        "conversation_id": conversation_id,
-        "messages": conversation
-    }
+            serialized = []
+            for msg in conversation:
+                serialized.append({
+                    "type": getattr(msg, "type", "unknown"),
+                    "data": {"content": getattr(msg, "content", str(msg))},
+                })
+
+            return {
+                "conversation_id": conversation_id,
+                "messages": serialized,
+                "context": {
+                    "jd_text": channel_values.get("jd_text"),
+                    "resume_text": channel_values.get("resume_text"),
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error reading checkpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading checkpoint: {str(e)}")
+
+    raise HTTPException(status_code=404, detail="Conversation not found")
+
 
 # -----------------------
 # Monitoring / Health API
@@ -209,19 +320,9 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/health/redis")
-def health_redis():
-    try:
-        memory.client.ping()
-        return {"redis": "connected"}
-    except Exception:
-        raise HTTPException(status_code=500, detail="Redis not reachable")
-
-
 @app.get("/health/llm")
 def health_llm():
     try:
-        # Minimal LLM ping
         from langchain_groq import ChatGroq
         from app.config import GROQ_MODEL
         llm = ChatGroq(model=GROQ_MODEL)
@@ -229,48 +330,3 @@ def health_llm():
         return {"llm": "reachable"}
     except Exception:
         raise HTTPException(status_code=500, detail="LLM not reachable")
-
-# -----------------------
-# Resume Upload API
-# -----------------------
-
-@app.post("/api/upload-resume")
-async def upload_resume(
-    resume: UploadFile = File(...),
-    session_id: str = Form(...)
-):
-    try:
-        # 1. Read the file bytes into memory
-        content = await resume.read()
-        
-        # 2. Extract text from the PDF
-        extracted_text = ""
-        if resume.filename.lower().endswith(".pdf"):
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
-            for page in pdf_reader.pages:
-                # FIX: Actually extract the text from each page
-                extracted_text += page.extract_text() + "\n"
-        else:
-            # Basic fallback for text files
-            extracted_text = content.decode('utf-8', errors='ignore')
-
-        # 3. Retrieve any existing memory for this session
-        conversation = memory.get_conversation(session_id)
-        if not conversation:
-            conversation = []
-
-        # 4. Inject the resume as a LangChain SystemMessage
-        resume_context = SystemMessage(
-            content=f"IMPORTANT BACKGROUND: The user has provided their resume. Please base your interview questions on this profile:\n\n{extracted_text}"
-        )
-        
-        # Append to the beginning of the conversation history
-        conversation.append(resume_context)
-        
-        # 5. Save it back to Redis/MemoryStore
-        memory.save_conversation(session_id, conversation)
-
-        return {"status": "success", "filename": resume.filename, "message": "Resume context injected into memory."}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process resume: {str(e)}")

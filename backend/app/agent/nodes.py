@@ -1,11 +1,9 @@
-# backend/app/agent/nodes.py
-
 from langchain_groq import ChatGroq
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+
+from app.agent.schema import IntentResponse
 from app.agent.state import AgentState
-from app.config import GROQ_MODEL, DEFAULT_SYSTEM_PROMPT
-from app.agent.tools import get_current_time
-from app.agent.schema import IntentResponse, InterviewResponse
+from app.config import SYSTEM_MESSAGE, GROQ_MODEL
 
 llm = ChatGroq(
     model=GROQ_MODEL,
@@ -16,91 +14,77 @@ llm = ChatGroq(
 )
 
 
-def intent_classifier_node(state: AgentState) -> AgentState:
+def intent_classifier_node(state: AgentState) -> dict:
     structured_llm = llm.with_structured_output(IntentResponse)
-    system_instruction = (
-        "You are an intent classifier. Your ONLY job is to output the correct intent in the required JSON format. "
-        "Do not explain your choice."
-    )
-    prompt = f"""
-Classification Categories:
-- tool: ONLY if the user is asking for the current time.
-- clarify: ONLY if the user input is complete gibberish or noise.
-- chat: For all normal interview responses, greetings, and generic conversation.
-
-User Input: "{state['user_input']}"
-"""
+    system_instruction = """
+        You are an intent classifier. Your ONLY job is to output the correct intent.
+        Classification Categories:
+        - clarify: ONLY if the user input is complete gibberish or noise.
+        - chat: For all normal interview responses, greetings, and generic conversation.
+    """
     messages = [
         SystemMessage(content=system_instruction),
-        HumanMessage(content=prompt)
+        HumanMessage(content=state['user_input']),
     ]
-    
+
     response = structured_llm.invoke(messages)
-    intent = response.intent
-    print(f"DEBUG: User Input='{state['user_input']}' | Classified Intent='{intent}'")
+    return {"intent": response.intent}
 
-    state["intent"] = intent
-    return state
-
-
-def clarify_node(state: AgentState) -> AgentState:
-    """
-    Asks the user for clarification when input is ambiguous.
-    """
-
-    response = (
-        "I’m not fully sure what you want yet. "
-        "Could you please clarify or give a bit more detail?"
-    )
-
-    state["conversation"].append(f"User: {state['user_input']}")
-    state["conversation"].append(f"Assistant: {response}")
-    state["output"] = response
-
-    return state
+def _stored_conversation(state: AgentState) -> list[BaseMessage]:
+    conversation = state.get("conversation", [])
+    return [msg for msg in conversation if isinstance(msg, BaseMessage)]
 
 
-def tool_node(state: AgentState) -> AgentState:
-    tool_result = get_current_time()
-    response = f"The current time is {tool_result}."
-
-    state["conversation"].append(f"User: {state['user_input']}")
-    state["conversation"].append(f"Assistant: {response}")
-    state["output"] = response
-
-    return state
+def clarify_node(state: AgentState) -> dict:
+    response = "I'm not fully sure what you want yet. Could you please clarify or give a bit more detail?"
+    conversation = list(_stored_conversation(state))
+    conversation.append(HumanMessage(content=state["user_input"]))
+    conversation.append(AIMessage(content=response))
+    return {"conversation": conversation, "output": response}
 
 
-def chat_node(state: AgentState) -> AgentState:
-    structured_llm = llm.with_structured_output(InterviewResponse)
-    system_prompt = state.get("system_message") or DEFAULT_SYSTEM_PROMPT
+def chat_node(state: AgentState) -> dict:
+    messages = []
     
-    messages = [SystemMessage(content=system_prompt)]
-    
-    # Process history
-    for msg in state["conversation"]:
-        if msg.startswith("User: "):
-            messages.append(HumanMessage(content=msg.replace("User: ", "", 1)))
-        elif msg.startswith("Assistant: "):
-            messages.append(AIMessage(content=msg.replace("Assistant: ", "", 1)))
+    # Filter out dummy initialization messages from history
+    clean_history = [
+        msg for msg in _stored_conversation(state) 
+        if not (isinstance(msg, HumanMessage) and msg.content == "SYSTEM_INITIALIZATION")
+    ]
+
+    # Only add system message on first real turn
+    if not clean_history:
+        system_template = state.get("system_message") or SYSTEM_MESSAGE
+        
+        # Check if we have JD and Resume to format the template
+        jd_text = state.get("jd_text")
+        resume_text = state.get("resume_text")
+        
+        if jd_text and resume_text and "{" in system_template:
+            try:
+                system_content = system_template.format(jd_text=jd_text, resume_text=resume_text)
+            except Exception:
+                system_content = system_template
+        else:
+            system_content = system_template
             
-    # Add current user input with a reminder for structured output
-    instruction = (
-        "\n\nIMPORTANT: You MUST provide your response in the required structured format "
-        "(acknowledgement, next_question, and analysis)."
-    )
-    messages.append(HumanMessage(content=state['user_input'] + instruction))
+        messages.append(SystemMessage(content=system_content))
 
-    response = structured_llm.invoke(messages)
-    
-    # Format the final output for the user
-    formatted_output = f"{response.acknowledgement}\n\n{response.next_question}"
+    # Add cleaned conversation history
+    messages.extend(clean_history)
 
-    state["conversation"].append(f"User: {state['user_input']}")
-    state["conversation"].append(f"Assistant: {formatted_output}")
-    state["output"] = formatted_output
-    state["acknowledgement"] = response.acknowledgement
-    state["analysis"] = response.analysis.model_dump()
-    print(state["analysis"])
+    # Current user input (skip dummy init)
+    user_input = state.get("user_input", "")
+    if user_input != "SYSTEM_INITIALIZATION":
+        messages.append(HumanMessage(content=user_input))
+        response = llm.invoke(messages)
+        output_text = response.content
+        new_history = messages + [AIMessage(content=output_text)]
+    else:
+        output_text = "Initialized"
+        new_history = messages
 
-    return state
+    return {
+        "output": output_text,
+        "conversation": new_history,
+    }
