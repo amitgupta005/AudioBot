@@ -54,6 +54,26 @@ export async function fetchConversation(sessionId) {
   return response.json();
 }
 
+export function buildConversationReportUrl(sessionId) {
+  return `${API_BASE_URL}/admin/conversations/${sessionId}/report.pdf`;
+}
+
+export function resolveApiUrl(url) {
+  if (!url) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+
+  if (url.startsWith("/")) {
+    return `${API_BASE_URL}${url}`;
+  }
+
+  return `${API_BASE_URL}/${url.replace(/^\/+/, "")}`;
+}
+
 export function createChatSocket() {
   return new WebSocket(getWebSocketUrl());
 }

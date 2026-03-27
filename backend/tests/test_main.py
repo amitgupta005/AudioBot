@@ -23,11 +23,14 @@ class DummyCheckpointTuple:
 
 
 class DummyCheckpointer:
+    def __init__(self):
+        self.tuple_to_return = None
+
     def list(self, _config):
         return []
 
     def get_tuple(self, _config):
-        return None
+        return self.tuple_to_return
 
 
 class DummyAgent:
@@ -126,6 +129,35 @@ class MainModuleTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_get_conversation_includes_interview_report_fields(self):
+        dummy_dependencies.agent.checkpointer.tuple_to_return = DummyCheckpointTuple(
+            thread_id="session-3",
+            checkpoint={
+                "channel_values": {
+                    "conversation": [],
+                    "question_count": 9,
+                    "interview_complete": True,
+                    "completion_reason": "satisfied",
+                    "report_status": "ready",
+                    "candidate_summary": "Strong communicator",
+                    "candidate_scores": {"communication": 9, "clarity": 8},
+                    "candidate_report": {"overall_score": 8},
+                    "hiring_recommendation": "yes",
+                    "report_download_url": "/admin/conversations/session-3/report.pdf",
+                }
+            },
+        )
+
+        response = self.client.get("/admin/conversations/session-3")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["interview_complete"])
+        self.assertEqual(body["question_count"], 9)
+        self.assertEqual(body["report_status"], "ready")
+        self.assertEqual(body["candidate_summary"], "Strong communicator")
+        self.assertEqual(body["report_download_url"], "/admin/conversations/session-3/report.pdf")
 
 
 if __name__ == "__main__":

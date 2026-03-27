@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
-import { createChatSocket, fetchConversation, fetchConversationIds } from "../lib/api";
+import {
+  buildConversationReportUrl,
+  createChatSocket,
+  fetchConversation,
+  fetchConversationIds,
+  resolveApiUrl,
+} from "../lib/api";
 import {
   listKnownSessions,
   startNewSession,
@@ -46,6 +52,12 @@ export default function ChatPage() {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState("");
   const [socketState, setSocketState] = useState("connecting");
+  const [interviewComplete, setInterviewComplete] = useState(false);
+  const [completionReason, setCompletionReason] = useState("");
+  const [reportStatus, setReportStatus] = useState("");
+  const [candidateSummary, setCandidateSummary] = useState("");
+  const [candidateScores, setCandidateScores] = useState(null);
+  const [reportDownloadUrl, setReportDownloadUrl] = useState("");
 
   useEffect(() => {
     touchSession(sessionId);
@@ -75,6 +87,12 @@ export default function ChatPage() {
 
         setMessages(transcript);
         setSystemMessage(conversation.system_message?.resolved || "");
+        setInterviewComplete(Boolean(conversation.interview_complete));
+        setCompletionReason(conversation.completion_reason || "");
+        setReportStatus(conversation.report_status || "");
+        setCandidateSummary(conversation.candidate_summary || "");
+        setCandidateScores(conversation.candidate_scores || null);
+        setReportDownloadUrl(resolveApiUrl(conversation.report_download_url || ""));
         setSessions(dedupeSessions(listKnownSessions(), conversationIds, sessionId));
       } catch (loadError) {
         if (!active) {
@@ -84,6 +102,12 @@ export default function ChatPage() {
         setMessages([]);
         setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
         setSystemMessage("");
+        setInterviewComplete(false);
+        setCompletionReason("");
+        setReportStatus("");
+        setCandidateSummary("");
+        setCandidateScores(null);
+        setReportDownloadUrl("");
         setError(loadError.message || "Could not load this session yet. Upload documents first.");
       } finally {
         if (active) {
@@ -134,6 +158,12 @@ export default function ChatPage() {
           setError(payload.error);
           setSending(false);
           setRecording(false);
+          if (payload.interview_complete) {
+            setInterviewComplete(true);
+            setCompletionReason(payload.completion_reason || "");
+            setReportStatus(payload.report_status || "");
+            setReportDownloadUrl(resolveApiUrl(payload.report_download_url) || buildConversationReportUrl(sessionId));
+          }
           return;
         }
 
@@ -146,6 +176,10 @@ export default function ChatPage() {
           setMessages((current) => [...current, { type: "ai", content: payload.text }]);
           setSending(false);
           setRecording(false);
+          setInterviewComplete(Boolean(payload.interview_complete));
+          setCompletionReason(payload.completion_reason || "");
+          setReportStatus(payload.report_status || "");
+          setReportDownloadUrl(resolveApiUrl(payload.report_download_url || ""));
 
           try {
             const conversation = await fetchConversation(sessionId);
@@ -155,6 +189,12 @@ export default function ChatPage() {
             }));
             setMessages(transcript);
             setSystemMessage(conversation.system_message?.resolved || "");
+            setInterviewComplete(Boolean(conversation.interview_complete));
+            setCompletionReason(conversation.completion_reason || "");
+            setReportStatus(conversation.report_status || "");
+            setCandidateSummary(conversation.candidate_summary || "");
+            setCandidateScores(conversation.candidate_scores || null);
+            setReportDownloadUrl(resolveApiUrl(conversation.report_download_url || ""));
           } catch {
             // Keep optimistic state if admin fetch is temporarily unavailable.
           }
@@ -198,7 +238,7 @@ export default function ChatPage() {
         return;
       }
 
-      if (isTyping && input.trim()) {
+      if (isTyping && input.trim() && !interviewComplete) {
         event.preventDefault();
         handleSend(event);
       }
@@ -208,7 +248,7 @@ export default function ChatPage() {
     return () => {
       window.removeEventListener("keydown", handleKeydown);
     };
-  }, [input, recording, socketState, sending, sessionId]);
+  }, [input, interviewComplete, recording, socketState, sending, sessionId]);
 
   function handleSend(event) {
     event?.preventDefault?.();
@@ -218,6 +258,7 @@ export default function ChatPage() {
       !trimmed ||
       sending ||
       recording ||
+      interviewComplete ||
       !socketRef.current ||
       socketRef.current.readyState !== WebSocket.OPEN
     ) {
@@ -243,6 +284,10 @@ export default function ChatPage() {
   }
 
   async function handleVoiceToggle() {
+    if (interviewComplete) {
+      return;
+    }
+
     if (recording) {
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
@@ -363,8 +408,10 @@ export default function ChatPage() {
 
         <form className="composer" onSubmit={handleSend}>
           <textarea
+            disabled={interviewComplete}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Type your answer or ask for clarification..."
+            placeholder={interviewComplete ? "Interview complete. Start a new session to continue." : "Type your answer or ask for clarification..."}
+            readOnly={interviewComplete}
             rows={4}
             value={input}
           />
@@ -375,17 +422,36 @@ export default function ChatPage() {
             <div className="composer-actions">
               <button
                 className={`secondary-button ${recording ? "recording" : ""}`}
-                disabled={sending || socketState !== "open"}
+                disabled={sending || socketState !== "open" || interviewComplete}
                 onClick={handleVoiceToggle}
                 type="button"
               >
                 {recording ? "Stop Recording" : "Record Voice"}
               </button>
-              <button className="primary-button" disabled={sending || socketState !== "open"} type="submit">
+              <button className="primary-button" disabled={sending || socketState !== "open" || interviewComplete} type="submit">
                 {sending ? "Sending..." : "Send Message"}
               </button>
             </div>
           </div>
+          {interviewComplete ? (
+            <div className="hint-copy" data-testid="interview-complete-state">
+              Interview complete{completionReason ? ` (${completionReason.replace("_", " ")})` : ""}.
+              {reportStatus ? ` Report status: ${reportStatus}.` : ""}
+              {candidateSummary ? ` Summary: ${candidateSummary}` : ""}
+              {candidateScores ? ` Communication ${candidateScores.communication}/10, Clarity ${candidateScores.clarity}/10.` : ""}
+            </div>
+          ) : null}
+          {interviewComplete && reportStatus === "ready" ? (
+            <a
+              className="primary-button"
+              data-testid="download-report-link"
+              href={reportDownloadUrl || buildConversationReportUrl(sessionId)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Download Report
+            </a>
+          ) : null}
           {error ? <p className="error-copy">{error}</p> : null}
         </form>
       </section>

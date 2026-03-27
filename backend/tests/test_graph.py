@@ -65,8 +65,11 @@ class GraphTests(unittest.TestCase):
 
         fake_nodes = types.ModuleType("app.agent.nodes")
         fake_nodes.intent_classifier_node = object()
-        fake_nodes.chat_node = object()
         fake_nodes.clarify_node = object()
+        fake_nodes.interview_evaluator_node = object()
+        fake_nodes.ask_question_node = object()
+        fake_nodes.close_interview_node = object()
+        fake_nodes.report_generator_node = object()
 
         with patch.dict(
             sys.modules,
@@ -84,8 +87,10 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(graph_module.redis_saver.redis_url, graph_module.REDIS_URL)
         self.assertTrue(graph_module.redis_saver.setup_called)
         self.assertEqual(graph_module.route_by_intent({"intent": "clarify"}), "clarify")
-        self.assertEqual(graph_module.route_by_intent({"intent": "chat"}), "chat")
-        self.assertEqual(graph_module.route_by_intent({}), "chat")
+        self.assertEqual(graph_module.route_by_intent({"intent": "chat"}), "interview_evaluator")
+        self.assertEqual(graph_module.route_by_intent({}), "interview_evaluator")
+        self.assertEqual(graph_module.route_interview({"interview_complete": True}), "close_interview")
+        self.assertEqual(graph_module.route_interview({"interview_complete": False}), "ask_question")
 
 
 if __name__ == "__main__":

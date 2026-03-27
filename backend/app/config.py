@@ -53,6 +53,12 @@ INSTRUCTIONS
 STT_MODEL = "base"
 TTS_MODEL = "en-US-AvaNeural"
 
+# Report output configuration
+REPORTS_DIR = os.getenv(
+    "REPORTS_DIR",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "generated_reports")),
+)
+
 # Redis configuration (env-driven)
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

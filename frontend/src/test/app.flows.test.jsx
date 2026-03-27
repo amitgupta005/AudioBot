@@ -19,6 +19,12 @@ function makeConversation(id, overrides = {}) {
       template: "Prompt {jd_text} {resume_text}",
       resolved: "Prompt JD context Resume context",
     },
+    interview_complete: false,
+    completion_reason: null,
+    report_status: null,
+    candidate_summary: null,
+    candidate_scores: null,
+    report_download_url: null,
     ...overrides,
   };
 }
@@ -290,5 +296,33 @@ describe("frontend flows", () => {
     expect(await within(screen.getByTestId("chat-stream")).findByText("Second session intro")).toBeInTheDocument();
     expect(screen.getByTestId(`session-link-${firstSessionId}`)).toBeInTheDocument();
     expect(screen.getByTestId(`session-link-${nextThreadId}`)).toBeInTheDocument();
+  });
+
+  it("Completed Interview: disables input and shows the generated report summary", async () => {
+    const sessionId = "session-complete";
+    conversations.set(
+      sessionId,
+      makeConversation(sessionId, {
+        interview_complete: true,
+        completion_reason: "satisfied",
+        report_status: "ready",
+        candidate_summary: "Strong communicator with relevant examples.",
+        candidate_scores: {
+          communication: 9,
+          clarity: 8,
+        },
+        report_download_url: "http://localhost:8000/admin/conversations/session-complete/report.pdf",
+      }),
+    );
+
+    renderApp([`/chat/${sessionId}`]);
+
+    expect(await screen.findByTestId("interview-complete-state")).toHaveTextContent("Interview complete");
+    expect(screen.getByPlaceholderText(/interview complete/i)).toBeDisabled();
+    expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
+    expect(screen.getByTestId("download-report-link")).toHaveAttribute(
+      "href",
+      "http://localhost:8000/admin/conversations/session-complete/report.pdf",
+    );
   });
 });
