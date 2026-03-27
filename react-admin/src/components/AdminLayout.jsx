@@ -2,11 +2,10 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import useAdminStore from '../store/adminStore';
 
 const getNav = (role) => {
-  const base = [
-    { to: '/', icon: '▤', label: 'Dashboard', end: true },
-  ];
+  const base = [];
 
   if (role === 'admin') {
+    base.push({to: '/', icon: '▤', label: 'Dashboard', end: true});
     base.push({ to: '/users', icon: '◉', label: 'Users' });
     base.push({ to: '/conversations', icon: '◈', label: 'Conversations' });
     base.push({ to: '/sessions', icon: '◌', label: 'Live Sessions' });
@@ -14,7 +13,7 @@ const getNav = (role) => {
   }
 
   if (role === 'company') {
-    base.push({ to: '/jobs', icon: '🏷️', label: 'Jobs' });
+    base.push({ to: '/', icon: '🏷️', label: 'Jobs' });
     base.push({ to: '/conversations', icon: '◈', label: 'Conversations' });
   }
 

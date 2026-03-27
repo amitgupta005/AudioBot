@@ -1,1 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables
 .env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AudioBot specific
+backend/app/.env
+backend/tests/__pycache__/
+backend/tests/cli_audio_session/
+*.wav
+*.mp3
+node_modules

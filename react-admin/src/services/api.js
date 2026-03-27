@@ -1,5 +1,21 @@
 import axios from 'axios';
 
+
+
+
+// NEW: Dedicated instance for the JD Upload Service (8080)
+const jdApi = axios.create({ 
+  baseURL: 'http://localhost:8000/api', 
+  withCredentials: true 
+});
+
+// Optional: Add the same token interceptor to jdApi if it requires auth
+jdApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('adminAccessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 const api = axios.create({ baseURL: '/api', withCredentials: true });
 
 api.interceptors.request.use((config) => {
@@ -54,6 +70,14 @@ export const adminApi = {
   getJobs: (params) => api.get('/admin/jobs', { params }),
   getJob: (jobId) => api.get(`/admin/jobs/${jobId}`),
   getJobConversations: (jobId, params) => api.get(`/admin/jobs/${jobId}/conversations`, { params }),
+  uploadJD: (file, jobId) => {
+    const formData = new FormData();
+    formData.append('jd', file);
+    formData.append('session_id', jobId);
+    return jdApi.post('/upload-jd', formData, { 
+      headers: { 'Content-Type': 'multipart/form-data' } 
+    });
+  },
   // Config
   getConfig: () => api.get('/admin/config'),
   updateConfig: (updates) => api.put('/admin/config', updates),
@@ -64,6 +88,15 @@ export const companyApi = {
   createJob: (data) => api.post('/company/jobs', data),
   getJob: (jobId) => api.get(`/company/jobs/${jobId}`),
   getJobConversations: (jobId, params) => api.get(`/company/jobs/${jobId}/conversations`, { params }),
+  getConversation: (sessionId) => api.get(`/conversations/${sessionId}`),
+  uploadJD: (file, jobId) => {
+    const formData = new FormData();
+    formData.append('jd', file);
+    formData.append('session_id', jobId);
+    return jdApi.post('/upload-jd', formData, { 
+      headers: { 'Content-Type': 'multipart/form-data' } 
+    });
+  },
 };
 
 export default api;

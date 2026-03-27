@@ -15,9 +15,12 @@ router.post('/start', authenticate, async (req, res) => {
       ipAddress: req.ip,
     };
 
+    const jobId = req.user.jobId || null;
+    const companyId = req.user.companyId || (req.user.role === 'company' ? req.user._id : null);
+
     const [session, conversation] = await Promise.all([
       SessionService.create(sessionId, req.user._id, metadata),
-      ConversationService.create(sessionId, req.user._id, metadata),
+      ConversationService.create(sessionId, req.user._id, metadata, jobId, companyId),
     ]);
 
     res.status(201).json({ success: true, sessionId, session, conversation });
@@ -40,10 +43,15 @@ router.get('/', authenticate, async (req, res) => {
 // GET /conversations/:sessionId — get full conversation
 router.get('/:sessionId', authenticate, async (req, res) => {
   try {
-    const convo = await ConversationService.getConversationDetails(
-      req.params.sessionId,
-      req.user.role === 'admin' ? null : req.user._id
-    );
+    let convo;
+    if (req.user.role === 'admin') {
+      convo = await ConversationService.getConversationDetails(req.params.sessionId, null);
+    } else if (req.user.role === 'company') {
+      convo = await ConversationService.getConversationDetailsByCompany(req.params.sessionId, req.user._id);
+    } else {
+      convo = await ConversationService.getConversationDetails(req.params.sessionId, req.user._id);
+    }
+
     if (!convo) return res.status(404).json({ success: false, message: 'Conversation not found' });
     res.json({ success: true, conversation: convo });
   } catch (err) {

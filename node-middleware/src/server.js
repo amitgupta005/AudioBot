@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const connectMongoDB = require('./config/mongodb');
 const redis = require('./config/redis');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const { authenticate } = require('./middleware/auth');
 const { createFastapiProxy, setupWebSocketProxy } = require('./middleware/proxy');
 
@@ -57,6 +58,43 @@ app.use('/api/admin', adminRoutes);
 
 // ─── Company Routes ───────────────────────────────────────────────────────────
 app.use('/api/company', companyRoutes);
+
+// ─── JD/Resume upload proxy via middleware → FastAPI (authenticated)
+app.use('/api/upload-jd', authenticate, createProxyMiddleware({
+  target: config.fastapiUrl,
+  changeOrigin: true,
+  onProxyReq: (proxyReq, req) => {
+    if (req.user) {
+      proxyReq.setHeader('X-User-Id', req.user._id.toString());
+      proxyReq.setHeader('X-User-Email', req.user.email);
+      proxyReq.setHeader('X-User-Role', req.user.role);
+    }
+  },
+  onError: (err, req, res) => {
+    console.error('Upload-JD proxy error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ success: false, message: 'Upload service unavailable', error: err.message });
+    }
+  },
+}));
+
+app.use('/api/upload-resume', authenticate, createProxyMiddleware({
+  target: config.fastapiUrl,
+  changeOrigin: true,
+  onProxyReq: (proxyReq, req) => {
+    if (req.user) {
+      proxyReq.setHeader('X-User-Id', req.user._id.toString());
+      proxyReq.setHeader('X-User-Email', req.user.email);
+      proxyReq.setHeader('X-User-Role', req.user.role);
+    }
+  },
+  onError: (err, req, res) => {
+    console.error('Upload-Resume proxy error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ success: false, message: 'Upload service unavailable', error: err.message });
+    }
+  },
+}));
 
 // ─── FastAPI Proxy (authenticated) ───────────────────────────────────────────
 // Injects session context, validates JWT, then proxies to FastAPI

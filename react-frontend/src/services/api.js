@@ -53,6 +53,7 @@ api.interceptors.response.use(
 export const authApi = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  verifyJob: (jobId) => api.get(`/auth/job/${jobId}`),
   refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
   me: () => api.get('/auth/me'),
   logout: () => api.post('/auth/logout'),

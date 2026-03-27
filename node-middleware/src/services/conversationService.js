@@ -52,8 +52,12 @@ const ConversationService = {
 
   async getConversationDetails(sessionId, userId = null) {
     const query = { sessionId };
-    if (userId) query.userId = userId; // non-admin can only see own
+    if (userId) query.userId = userId; // candidate user only
     return Conversation.findOne(query).populate('userId', 'name email');
+  },
+
+  async getConversationDetailsByCompany(sessionId, companyId) {
+    return Conversation.findOne({ sessionId, companyId }).populate('userId', 'name email');
   },
 
   async getAllConversations(page = 1, limit = 20, filters = {}) {

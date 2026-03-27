@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import useAuthStore from '../store/authStore';
+import { authApi } from '../services/api';
 
 export default function AuthPage() {
   const [mode, setMode] = useState('login');
@@ -14,11 +15,23 @@ export default function AuthPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const jobId = form.jobId.trim() || undefined;
+
+      if (mode === 'register' && jobId) {
+        try {
+          await authApi.verifyJob(jobId);
+        } catch (err) {
+          toast.error(err.response?.data?.message || 'Job ID is invalid or not found');
+          setLoading(false);
+          return;
+        }
+      }
+
       if (mode === 'login') {
         await login(form.email, form.password);
         toast.success('Welcome back!');
       } else {
-        await register(form.name, form.email, form.password, form.jobId);
+        await register(form.name, form.email, form.password, jobId);
         toast.success('Account created!');
       }
       navigate('/chat');
