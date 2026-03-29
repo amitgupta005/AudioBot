@@ -18,3 +18,4 @@ pdfplumber
 numpy
 sounddevice
 soundfile
+reportlab

@@ -17,10 +17,16 @@ dotenv.load_dotenv = lambda *args, **kwargs: False
 class StubAgent:
     def __init__(self):
         self.calls = []
+        self.checkpointer = types.SimpleNamespace(get_tuple=lambda _config: None)
 
     def invoke(self, state, config=None):
         self.calls.append((state, config))
-        return {"output": "Agent reply"}
+        return {
+            "output": "Agent reply",
+            "interview_complete": False,
+            "completion_reason": "in_progress",
+            "report_status": None,
+        }
 
 
 class StubStt:
@@ -87,6 +93,7 @@ class WebSocketHandlerTests(unittest.TestCase):
         self.original_disconnect = getattr(sys.modules["app.websocket"], "WebSocketDisconnect", None)
         sys.modules["app.websocket"].WebSocketDisconnect = FakeWebSocketDisconnect
         stub_dependencies.agent.calls.clear()
+        stub_dependencies.agent.checkpointer = types.SimpleNamespace(get_tuple=lambda _config: None)
         stub_dependencies.stt.calls.clear()
         stub_dependencies.tts.calls.clear()
 
@@ -129,6 +136,27 @@ class WebSocketHandlerTests(unittest.TestCase):
         asyncio.run(websocket_handler(websocket))
 
         self.assertEqual(websocket.sent_texts[0], {"error": "Invalid JSON"})
+
+    def test_completed_session_rejects_new_messages(self):
+        stub_dependencies.agent.checkpointer = types.SimpleNamespace(
+            get_tuple=lambda _config: types.SimpleNamespace(
+                checkpoint={
+                    "channel_values": {
+                        "interview_complete": True,
+                        "completion_reason": "satisfied",
+                        "report_status": "ready",
+                    }
+                }
+            )
+        )
+        websocket = FakeWebSocket(
+            text_frames=[json.dumps({"type": "text", "conversation_id": "conv-3", "message": "Hello"})]
+        )
+
+        asyncio.run(websocket_handler(websocket))
+
+        self.assertTrue(websocket.sent_texts[0]["interview_complete"])
+        self.assertEqual(stub_dependencies.agent.calls, [])
 
 
 if __name__ == "__main__":

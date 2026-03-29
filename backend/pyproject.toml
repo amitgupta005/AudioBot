@@ -27,6 +27,7 @@ dependencies = [
     "numpy",
     "sounddevice",
     "soundfile",
+    "reportlab",
 ]
 
 [tool.setuptools.packages.find]

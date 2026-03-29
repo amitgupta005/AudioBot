@@ -2,13 +2,15 @@
 
 import io
 import logging
+import os
 import pdfplumber
 from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.dependencies import agent
 from app.websocket import websocket_handler
-from app.config import APP_NAME, APP_VERSION
+from app.config import APP_NAME, APP_VERSION, SYSTEM_MESSAGE
 
 # Configure logging ONCE for the entire application
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +21,7 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION)
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['http://localhost:5173', 'http://localhost:5174'],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,12 +53,44 @@ def _initialize_thread_state(session_id: str, new_values: dict):
     except Exception:
         logger.info(f"Initializing new thread {session_id} with state {list(new_values.keys())}")
         initial_state = {
+            "session_id": session_id,
             "user_input": "SYSTEM_INITIALIZATION",
             "conversation": [],
             "intent": "clarify",
+            "question_count": 0,
+            "should_ask_followup": False,
+            "interview_complete": False,
+            "completion_reason": "in_progress",
+            "interview_closed_at": None,
+            "report_status": None,
+            "candidate_report": None,
+            "candidate_scores": None,
+            "candidate_summary": None,
+            "hiring_recommendation": None,
+            "report_pdf_path": None,
+            "report_download_url": None,
             **new_values
         }
         agent.invoke(initial_state, config=config)
+
+
+def _resolve_system_message(channel_values: dict) -> dict:
+    system_template = channel_values.get("system_message") or SYSTEM_MESSAGE
+    jd_text = channel_values.get("jd_text")
+    resume_text = channel_values.get("resume_text")
+
+    if jd_text and resume_text and "{" in system_template:
+        try:
+            resolved = system_template.format(jd_text=jd_text, resume_text=resume_text)
+        except Exception:
+            resolved = system_template
+    else:
+        resolved = system_template
+
+    return {
+        "template": system_template,
+        "resolved": resolved,
+    }
 
 
 # ============================================================
@@ -160,11 +194,41 @@ def get_conversation(conversation_id: str):
                 "context": {
                     "jd_text": channel_values.get("jd_text"),
                     "resume_text": channel_values.get("resume_text"),
-                }
+                },
+                "system_message": _resolve_system_message(channel_values),
+                "question_count": channel_values.get("question_count", 0),
+                "interview_complete": bool(channel_values.get("interview_complete")),
+                "completion_reason": channel_values.get("completion_reason"),
+                "interview_closed_at": channel_values.get("interview_closed_at"),
+                "report_status": channel_values.get("report_status"),
+                "candidate_report": channel_values.get("candidate_report"),
+                "candidate_scores": channel_values.get("candidate_scores"),
+                "candidate_summary": channel_values.get("candidate_summary"),
+                "hiring_recommendation": channel_values.get("hiring_recommendation"),
+                "report_pdf_path": channel_values.get("report_pdf_path"),
+                "report_download_url": channel_values.get("report_download_url"),
             }
     except Exception as e:
         logger.error(f"Error reading checkpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Error reading checkpoint: {str(e)}")
+
+    raise HTTPException(status_code=404, detail="Conversation not found")
+
+
+@app.get("/admin/conversations/{conversation_id}/report.pdf")
+def download_conversation_report(conversation_id: str):
+    config = {"configurable": {"thread_id": conversation_id}}
+    checkpoint_tuple = agent.checkpointer.get_tuple(config)
+    if checkpoint_tuple and checkpoint_tuple.checkpoint:
+        channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+        report_pdf_path = channel_values.get("report_pdf_path")
+        if report_pdf_path and os.path.exists(report_pdf_path):
+            return FileResponse(
+                report_pdf_path,
+                media_type="application/pdf",
+                filename=f"{conversation_id}-candidate-report.pdf",
+            )
+        raise HTTPException(status_code=404, detail="Candidate report PDF not available")
 
     raise HTTPException(status_code=404, detail="Conversation not found")
 

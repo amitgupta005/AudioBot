@@ -9,6 +9,17 @@ from app.config import SYSTEM_MESSAGE
 logger = logging.getLogger(__name__)
 
 
+def _session_channel_values(conversation_id: str) -> dict:
+    config = {"configurable": {"thread_id": conversation_id}}
+    checkpointer = getattr(agent, "checkpointer", None)
+    if checkpointer is None or not hasattr(checkpointer, "get_tuple"):
+        return {}
+    checkpoint_tuple = checkpointer.get_tuple(config)
+    if checkpoint_tuple and checkpoint_tuple.checkpoint:
+        return checkpoint_tuple.checkpoint.get("channel_values", {})
+    return {}
+
+
 async def websocket_handler(websocket: WebSocket):
     """
     WebSocket transport layer supporting both text and audio with persistent memory via LangGraph.
@@ -35,6 +46,18 @@ async def websocket_handler(websocket: WebSocket):
             msg_type = data.get("type", "text")
             conversation_id = data.get("conversation_id", "default-session")
             user_text = ""
+            channel_values = _session_channel_values(conversation_id)
+
+            if channel_values.get("interview_complete"):
+                await websocket.send_text(json.dumps({
+                    "error": "This interview has already ended. Start a new session to continue.",
+                    "type": "interview_complete",
+                    "interview_complete": True,
+                    "completion_reason": channel_values.get("completion_reason"),
+                    "report_status": channel_values.get("report_status"),
+                    "report_download_url": channel_values.get("report_download_url"),
+                }))
+                continue
 
             if msg_type == "text":
                 user_text = data.get("message", "")
@@ -68,6 +91,7 @@ async def websocket_handler(websocket: WebSocket):
                 state = {
                     "user_input": str(user_text),
                     "system_message": SYSTEM_MESSAGE,
+                    "session_id": conversation_id,
                 }
                 config = {"configurable": {"thread_id": conversation_id}}
                 result = agent.invoke(state, config=config)
@@ -76,10 +100,14 @@ async def websocket_handler(websocket: WebSocket):
                 await websocket.send_text(json.dumps({
                     "sender": "AI",
                     "text": response_text,
-                    "type": "response"
+                    "type": "response",
+                    "interview_complete": bool(result.get("interview_complete")),
+                    "completion_reason": result.get("completion_reason"),
+                    "report_status": result.get("report_status"),
+                    "report_download_url": result.get("report_download_url"),
                 }))
 
-                if msg_type == "audio":
+                if msg_type == "audio" and not result.get("interview_complete"):
                     logger.info("Synthesizing audio response...")
                     audio_response = await tts.synthesize(response_text)
                     if audio_response:
