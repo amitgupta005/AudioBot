@@ -62,15 +62,19 @@ def _clean_history(state: AgentState) -> list[BaseMessage]:
     ]
 
 
+def _conversation_with_resolved_system(state: AgentState) -> list[BaseMessage]:
+    history = _clean_history(state)
+    resolved_system = SystemMessage(content=_resolved_system_message(state))
+
+    if history and isinstance(history[0], SystemMessage):
+        history[0] = resolved_system
+        return history
+
+    return [resolved_system, *history]
+
+
 def _base_messages_for_turn(state: AgentState) -> list[BaseMessage]:
-    messages: list[BaseMessage] = []
-    clean_history = _clean_history(state)
-
-    if not clean_history:
-        messages.append(SystemMessage(content=_resolved_system_message(state)))
-
-    messages.extend(clean_history)
-    return messages
+    return _conversation_with_resolved_system(state)
 
 
 def _with_current_user_message(messages: list[BaseMessage], state: AgentState) -> list[BaseMessage]:
@@ -82,7 +86,7 @@ def _with_current_user_message(messages: list[BaseMessage], state: AgentState) -
 
 def clarify_node(state: AgentState) -> dict:
     response = "I'm not fully sure what you want yet. Could you please clarify or give a bit more detail?"
-    conversation = list(_stored_conversation(state))
+    conversation = _conversation_with_resolved_system(state)
     conversation.append(HumanMessage(content=state["user_input"]))
     conversation.append(AIMessage(content=response))
     return {
@@ -195,7 +199,10 @@ def ask_question_node(state: AgentState) -> dict:
     )
     response = llm.invoke(messages)
     output_text = response.content
-    new_history = _clean_history(state) + [HumanMessage(content=user_input), AIMessage(content=output_text)]
+    new_history = _conversation_with_resolved_system(state) + [
+        HumanMessage(content=user_input),
+        AIMessage(content=output_text),
+    ]
 
     return {
         "output": output_text,
@@ -227,7 +234,7 @@ def close_interview_node(state: AgentState) -> dict:
     )
     response = llm.invoke(messages)
     output_text = response.content
-    new_history = _clean_history(state)
+    new_history = _conversation_with_resolved_system(state)
     if user_input and user_input != "SYSTEM_INITIALIZATION":
         new_history.append(HumanMessage(content=user_input))
     new_history.append(AIMessage(content=output_text))

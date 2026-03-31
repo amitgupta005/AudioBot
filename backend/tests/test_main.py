@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import dotenv
 from fastapi.testclient import TestClient
+from langchain_core.messages import SystemMessage
 
 
 BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -119,10 +120,60 @@ class MainModuleTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["resume_chars"], len("Resume body text"))
-        self.assertEqual(
-            dummy_dependencies.agent.update_calls[-1],
-            ({"configurable": {"thread_id": "session-2"}}, {"resume_text": "Resume body text"}),
+        config, payload = dummy_dependencies.agent.update_calls[-1]
+        self.assertEqual(config, {"configurable": {"thread_id": "session-2"}})
+        self.assertEqual(payload["resume_text"], "Resume body text")
+        self.assertIn("Resume body text", payload["system_message"])
+        self.assertNotIn("{resume_text}", payload["system_message"])
+        self.assertTrue(payload["conversation"])
+        self.assertIsInstance(payload["conversation"][0], SystemMessage)
+        self.assertEqual(payload["conversation"][0].content, payload["system_message"])
+
+    def test_upload_jd_updates_existing_system_message_without_placeholders(self):
+        dummy_dependencies.agent.checkpointer.tuple_to_return = DummyCheckpointTuple(
+            thread_id="session-4",
+            checkpoint={
+                "channel_values": {
+                    "system_message": (
+                        "You are an HR interviewer assessing cultural fit.\n"
+                        "You are provided with:\n"
+                        "1. A Job Description\n"
+                        "2. A Candidate's Resume\n"
+                        "Use both to tailor your interview questions.\n"
+                        "==============================\n"
+                        "JOB DESCRIPTION\n"
+                        "==============================\n"
+                        "Old JD text\n"
+                        "==============================\n"
+                        "CANDIDATE RESUME\n"
+                        "==============================\n"
+                        "Existing resume text\n"
+                        "==============================\n"
+                        "INSTRUCTIONS\n"
+                        "==============================\n"
+                        "1. Begin by understanding the candidate's background:\n"
+                    ),
+                    "conversation": [SystemMessage(content="stale prompt")],
+                    "resume_text": "Existing resume text",
+                }
+            },
         )
+
+        with patch("app.main.extract_pdf_text", return_value="New JD text"):
+            response = self.client.post(
+                "/api/upload-jd",
+                files={"jd": ("jd.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")},
+                data={"session_id": "session-4"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        config, payload = dummy_dependencies.agent.update_calls[-1]
+        self.assertEqual(config, {"configurable": {"thread_id": "session-4"}})
+        self.assertEqual(payload["jd_text"], "New JD text")
+        self.assertIn("New JD text", payload["system_message"])
+        self.assertIn("Existing resume text", payload["system_message"])
+        self.assertNotIn("Old JD text", payload["system_message"])
+        self.assertEqual(payload["conversation"][0].content, payload["system_message"])
 
     def test_health_returns_ok(self):
         response = self.client.get("/health")

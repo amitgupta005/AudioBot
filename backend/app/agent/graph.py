@@ -40,7 +40,8 @@ def build_agent():
     graph.add_node("close_interview", close_interview_node)
     graph.add_node("report_generator", report_generator_node)
 
-    graph.set_entry_point("intent_classifier")
+    # graph.set_entry_point("intent_classifier")
+    graph.add_edge(START, "intent_classifier")
 
     graph.add_conditional_edges(
         "intent_classifier",

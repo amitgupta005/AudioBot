@@ -3,10 +3,12 @@
 import io
 import logging
 import os
+
 import pdfplumber
 from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.messages import BaseMessage, SystemMessage
 
 from app.dependencies import agent
 from app.websocket import websocket_handler
@@ -41,21 +43,73 @@ def extract_pdf_text(file_bytes: bytes) -> str:
     return "\n".join(pages)
 
 
+def _thread_channel_values(session_id: str) -> dict:
+    config = {"configurable": {"thread_id": session_id}}
+    checkpointer = getattr(agent, "checkpointer", None)
+    if checkpointer is None or not hasattr(checkpointer, "get_tuple"):
+        return {}
+
+    checkpoint_tuple = checkpointer.get_tuple(config)
+    if checkpoint_tuple and checkpoint_tuple.checkpoint:
+        return checkpoint_tuple.checkpoint.get("channel_values", {})
+    return {}
+
+
+def _resolve_system_message_values(values: dict) -> str:
+    system_template = values.get("system_message") or SYSTEM_MESSAGE
+    jd_text = values.get("jd_text")
+    resume_text = values.get("resume_text")
+
+    if jd_text and resume_text and "{" in system_template:
+        try:
+            return system_template.format(jd_text=jd_text, resume_text=resume_text)
+        except Exception:
+            return system_template
+
+    return system_template
+
+
+def _updated_conversation(channel_values: dict, merged_values: dict) -> list[BaseMessage]:
+    conversation = channel_values.get("conversation", [])
+    messages = [msg for msg in conversation if isinstance(msg, BaseMessage)]
+    system_entry = SystemMessage(content=_resolve_system_message_values(merged_values))
+
+    if messages and isinstance(messages[0], SystemMessage):
+        messages[0] = system_entry
+        return messages
+
+    return [system_entry, *messages]
+
+
 def _initialize_thread_state(session_id: str, new_values: dict):
     """
     Idiomatic LangGraph: Store state in the checkpointer.
     If the thread doesn't exist, we seed it with an initial invoke.
     """
     config = {"configurable": {"thread_id": session_id}}
+    channel_values = _thread_channel_values(session_id)
+    merged_values = {
+        **channel_values,
+        **new_values,
+        "system_message": SYSTEM_MESSAGE,
+    }
+    conversation = _updated_conversation(channel_values, merged_values)
+    state_update = {
+        **new_values,
+        "system_message": SYSTEM_MESSAGE,
+        "conversation": conversation,
+    }
+
     try:
-        agent.update_state(config, new_values)
+        agent.update_state(config, state_update)
         logger.info(f"Updated state for thread {session_id}")
     except Exception:
         logger.info(f"Initializing new thread {session_id} with state {list(new_values.keys())}")
         initial_state = {
             "session_id": session_id,
             "user_input": "SYSTEM_INITIALIZATION",
-            "conversation": [],
+            "conversation": conversation,
+            "system_message": SYSTEM_MESSAGE,
             "intent": "clarify",
             "question_count": 0,
             "should_ask_followup": False,
