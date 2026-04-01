@@ -19,3 +19,7 @@ numpy
 sounddevice
 soundfile
 reportlab
+cloudinary
+pymongo
+motor
+httpx

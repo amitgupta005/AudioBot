@@ -11,22 +11,20 @@ const createFastapiProxy = () =>
     target: config.fastapiUrl,
     changeOrigin: true,
     pathRewrite: { '^/api/ai': '' }, // strip /api/ai prefix → FastAPI root
-    on: {
-      proxyReq: (proxyReq, req) => {
-        // Inject authenticated user identity so FastAPI knows who it's talking to
-        if (req.user) {
-          proxyReq.setHeader('X-User-Id', req.user._id.toString());
-          proxyReq.setHeader('X-User-Email', req.user.email);
-          proxyReq.setHeader('X-User-Role', req.user.role);
-        }
-        if (req.sessionId) {
-          proxyReq.setHeader('X-Session-Id', req.sessionId);
-        }
-      },
-      error: (err, req, res) => {
-        console.error('Proxy error:', err.message);
-        res.status(502).json({ success: false, message: 'AI service unavailable', error: err.message });
-      },
+    onProxyReq: (proxyReq, req) => {
+      // Inject authenticated user identity so FastAPI knows who it's talking to
+      if (req.user) {
+        proxyReq.setHeader('X-User-Id', req.user._id.toString());
+        proxyReq.setHeader('X-User-Email', req.user.email);
+        proxyReq.setHeader('X-User-Role', req.user.role);
+      }
+      if (req.sessionId) {
+        proxyReq.setHeader('X-Session-Id', req.sessionId);
+      }
+    },
+    onError: (err, req, res) => {
+      console.error('Proxy error:', err.message);
+      res.status(502).json({ success: false, message: 'AI service unavailable', error: err.message });
     },
   });
 

@@ -200,6 +200,39 @@ router.get('/conversations/:sessionId', async (req, res, next) => {
   }
 });
 
+// ─── JOBS & CONVERSATIONS ──────────────────────────────────────────────────────
+router.get('/jobs/:jobId/conversations', async (req, res, next) => {
+  try {
+    const { jobId } = req.params;
+    const { page = 1, limit = 20, active } = req.query;
+    
+    const query = { jobId };
+    if (active === 'true') query.isActive = true;
+    else if (active === 'false') query.isActive = false;
+
+    const [conversations, total] = await Promise.all([
+      Conversation.find(query)
+        .populate('userId', 'name email')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(parseInt(limit))
+        .select('-messages'),
+      Conversation.countDocuments(query),
+    ]);
+
+    res.json({ 
+      success: true, 
+      conversations, 
+      total, 
+      page: parseInt(page), 
+      limit: parseInt(limit), 
+      jobId 
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── SESSION MANAGEMENT ────────────────────────────────────────────────────────
 router.get('/sessions', async (req, res, next) => {
   try {
@@ -272,6 +305,93 @@ router.put('/config/:key', async (req, res, next) => {
     ).populate('updatedBy', 'name email');
 
     res.json({ success: true, config });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── CONVERSATION REPORTS ──────────────────────────────────────────────────────
+router.post('/conversation/:conversationId/report.pdf', async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    // Call FastAPI backend to generate/retrieve the PDF
+    const fastApiUrl = process.env.FASTAPI_BACKEND_URL || 'http://localhost:8000';
+    const fetch = (await import('node-fetch')).default;
+
+    const backendResponse = await fetch(`${fastApiUrl}/admin/conversation/${conversation.sessionId}/report.pdf`, {
+      method: 'POST',
+    });
+
+    if (!backendResponse.ok) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to generate report from backend'
+      });
+    }
+
+    // The Python backend responds with a JSON containing the already uploaded Cloudinary URL
+    const data = await backendResponse.json();
+    
+    if (!data.success || !data.report_url) {
+      return res.status(500).json({
+        success: false,
+        message: 'Backend failed to generate report URL'
+      });
+    }
+
+    // Store the report URL and metadata in MongoDB
+    const reportData = {
+      pdfUrl: data.report_url,
+      uploadedAt: new Date(),
+      generatedAt: new Date(),
+    };
+
+    const updatedConversation = await Conversation.findByIdAndUpdate(
+      conversationId,
+      { report: reportData },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: 'Report uploaded successfully',
+      report: reportData,
+      conversation: updatedConversation,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get report for a conversation
+router.get('/conversation/:conversationId/report', async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const conversation = await Conversation.findById(conversationId).select('report title sessionId');
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    if (!conversation.report || !conversation.report.pdfUrl) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No report available for this conversation' 
+      });
+    }
+
+    res.json({
+      success: true,
+      report: conversation.report,
+      conversationTitle: conversation.title,
+      sessionId: conversation.sessionId,
+    });
   } catch (err) {
     next(err);
   }

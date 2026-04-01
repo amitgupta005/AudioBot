@@ -60,7 +60,7 @@ export const authApi = {
 };
 
 export const conversationApi = {
-  start: () => api.post('/conversations/start'),
+  start: (jobId) => jobId ? api.post('/conversations/start', { jobId }) : api.post('/conversations/start'),
   list: (page = 1) => api.get(`/conversations?page=${page}`),
   get: (sessionId) => api.get(`/conversations/${sessionId}`),
   sendMessage: (sessionId, message) => api.post(`/conversations/${sessionId}/message`, message),

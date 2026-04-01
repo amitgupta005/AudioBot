@@ -68,3 +68,21 @@ REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB
 # Application settings
 APP_NAME = "AudioBot - Conversational AI"
 APP_VERSION = "0.2.0"
+
+# ============================================================
+# CLOUDINARY CONFIGURATION (for PDF uploads)
+# ============================================================
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+# ============================================================
+# MONGODB CONFIGURATION
+# ============================================================
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:2000")
+MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "test")
+
+# ============================================================
+# GATEWAY API CONFIGURATION
+# ============================================================
+GATEWAY_API_URL = os.getenv("GATEWAY_API_URL", "http://localhost:4001/api")

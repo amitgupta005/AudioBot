@@ -13,6 +13,7 @@ const messageSchema = new mongoose.Schema({
 const conversationSchema = new mongoose.Schema({
   sessionId: { type: String, required: true, unique: true, index: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  jobId: { type: String, index: true },
   title: { type: String, default: 'New Conversation' },
   messages: [messageSchema],
   isActive: { type: Boolean, default: true },
@@ -22,6 +23,12 @@ const conversationSchema = new mongoose.Schema({
   summary: { type: String }, // AI-generated summary
   tags: [String],
   metadata: { type: mongoose.Schema.Types.Mixed },
+  report: {
+    pdfUrl: { type: String }, // Cloudinary URL
+    pdfPublicId: { type: String }, // Cloudinary public ID
+    uploadedAt: { type: Date },
+    generatedAt: { type: Date },
+  },
 }, { timestamps: true });
 
 conversationSchema.pre('save', function (next) {

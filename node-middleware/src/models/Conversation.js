@@ -15,7 +15,7 @@ const conversationSchema = new mongoose.Schema(
   {
     sessionId: { type: String, required: true, unique: true, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    jobId: { type: String, ref: 'Job', default: null, index: true },
+    jobId: { type: String, default: null, index: true },
     companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     title: { type: String, default: 'New Conversation' },
     messages: [messageSchema],
@@ -23,10 +23,18 @@ const conversationSchema = new mongoose.Schema(
     isActive: { type: Boolean, default: true },
     endedAt: { type: Date, default: null },
     endedBy: { type: String, enum: ['user', 'admin', 'timeout', null], default: null },
+    summary: { type: String },
+    tags: [String],
     metadata: {
       userAgent: String,
       ipAddress: String,
       totalTokensUsed: { type: Number, default: 0 },
+    },
+    report: {
+      pdfUrl: { type: String },
+      pdfPublicId: { type: String },
+      uploadedAt: { type: Date },
+      generatedAt: { type: Date },
     },
   },
   { timestamps: true }

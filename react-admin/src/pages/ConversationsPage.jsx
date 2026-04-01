@@ -4,12 +4,46 @@ import { adminApi } from '../services/api';
 
 function ConversationModal({ sessionId, onClose }) {
   const [convo, setConvo] = useState(null);
+  const [reportInfo, setReportInfo] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
-    adminApi.getConversation(sessionId).then(({ data }) => {
-      setConvo(data.conversation); setLoading(false);
-    }).catch(() => setLoading(false));
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        // Load conversation
+        const { data } = await adminApi.getConversation(sessionId);
+        setConvo(data.conversation);
+        console.log('✅ Conversation loaded:', data.conversation);
+        
+        // Load report info from checkpoint (fallback if MongoDB sync fails)
+        setReportLoading(true);
+        try {
+          const reportRes = await adminApi.getConversationReportInfo(sessionId);
+          console.log('📋 Report info response:', reportRes.data);
+          
+          if (reportRes.data?.success && reportRes.data?.report_download_url) {
+            setReportInfo(reportRes.data);
+            console.log('✅ Report info loaded:', reportRes.data);
+          } else if (reportRes.data?.report_download_url) {
+            setReportInfo(reportRes.data);
+            console.log('✅ Report URL available:', reportRes.data.report_download_url);
+          } else {
+            console.warn('⚠️  No report available yet:', reportRes.data?.message);
+          }
+        } catch (e) {
+          console.warn('⚠️  Failed to fetch report info:', e.message);
+        } finally {
+          setReportLoading(false);
+        }
+      } catch (e) {
+        console.error('❌ Failed to load data:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
   }, [sessionId]);
 
   return (
@@ -26,6 +60,28 @@ function ConversationModal({ sessionId, onClose }) {
         </div>
         {loading ? <div style={{ color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: 40 }}>Loading...</div> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Report section - from checkpoint OR MongoDB */}
+            {(reportInfo?.report_download_url || convo?.report?.pdfUrl) ? (
+              <div style={{ background: 'rgba(59,108,244,0.1)', border: '1px solid rgba(59,108,244,0.3)', borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 8, fontWeight: 600 }}>📄 Candidate Report</div>
+                <a href={reportInfo?.report_download_url || convo?.report?.pdfUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', padding: '8px 14px', background: 'rgba(59,108,244,0.2)', border: '1px solid rgba(59,108,244,0.4)', borderRadius: 8, color: '#7c9ae0', textDecoration: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}>
+                  ⬇️ Download PDF Report
+                </a>
+                {(reportInfo?.report_cloudinary_url || convo?.report?.uploadedAt) && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 8, fontFamily: "'DM Mono', monospace" }}>
+                    Generated: {new Date(convo?.report?.uploadedAt || new Date()).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            ) : reportLoading ? (
+              <div style={{ background: 'rgba(59,108,244,0.05)', border: '1px solid rgba(59,108,244,0.2)', borderRadius: 12, padding: 12, marginBottom: 12, fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                📄 Loading report...
+              </div>
+            ) : !convo?.isActive ? (
+              <div style={{ background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 12, padding: 12, marginBottom: 12, fontSize: 12, color: 'rgba(34,197,94,0.6)' }}>
+                📄 Report: {reportInfo?.report_status === 'ready' ? '✅ Available' : reportInfo?.report_status || 'Generating...'}
+              </div>
+            ) : null}
             {convo?.messages?.map((m, i) => (
               <div key={i} style={{ display: 'flex', gap: 10, flexDirection: m.role === 'user' ? 'row-reverse' : 'row' }}>
                 <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.role === 'assistant' ? 'linear-gradient(135deg, #3b6cf4, #7c9ae0)' : 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>
@@ -86,14 +142,14 @@ export default function ConversationsPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              {['Title', 'User', 'Messages', 'Status', 'Updated', 'Actions'].map((h) => (
+              {['Title', 'User', 'Messages', 'Report', 'Status', 'Updated', 'Actions'].map((h) => (
                 <th key={h} style={{ padding: '14px 20px', textAlign: 'left', fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.08em', textTransform: 'uppercase', fontFamily: "'DM Mono', monospace", fontWeight: 400 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>Loading...</td></tr>
+              <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>Loading...</td></tr>
             ) : convos.map((c) => (
               <tr key={c._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }} onClick={() => setSelected(c.sessionId)}>
                 <td style={{ padding: '14px 20px', fontSize: 13, color: '#e2e8f0', maxWidth: 200 }}>
@@ -101,6 +157,17 @@ export default function ConversationsPage() {
                 </td>
                 <td style={{ padding: '14px 20px', fontSize: 12, color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Mono', monospace" }}>{c.userId?.email || '—'}</td>
                 <td style={{ padding: '14px 20px', fontSize: 13, color: 'rgba(255,255,255,0.5)', fontFamily: "'DM Mono', monospace" }}>{c.messageCount}</td>
+                <td style={{ padding: '14px 20px' }}>
+                  {c.report?.pdfUrl ? (
+                    <a href={c.report.pdfUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: 'inline-block', padding: '4px 10px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 6, color: '#4ade80', textDecoration: 'none', fontSize: 11, fontFamily: "'DM Mono', monospace", cursor: 'pointer' }}>
+                      📄 Download
+                    </a>
+                  ) : !c.isActive ? (
+                    <span style={{ fontSize: 11, color: 'rgba(59,108,244,0.6)', fontStyle: 'italic' }}>Check details →</span>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>—</span>
+                  )}
+                </td>
                 <td style={{ padding: '14px 20px' }}>
                   <span style={{ background: c.isActive ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)', color: c.isActive ? '#4ade80' : 'rgba(255,255,255,0.3)', border: `1px solid ${c.isActive ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontFamily: "'DM Mono', monospace" }}>
                     {c.isActive ? 'active' : c.endedBy || 'ended'}

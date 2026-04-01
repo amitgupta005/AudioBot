@@ -132,6 +132,27 @@ function ConversationAccordion({ conversation, onViewDetails }) {
               {conversation.isActive ? 'Active' : 'Inactive'}
             </div>
           </div>
+          {conversation.report?.pdfUrl && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                paddingLeft: 8,
+                borderLeft: '1px solid rgba(255,255,255,0.1)',
+              }}>
+              <div
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: '#4ade80',
+                }}></div>
+              <div style={{ fontSize: 11, color: '#4ade80', fontWeight: 600 }}>
+                📊 Report
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -199,17 +220,34 @@ function ConversationAccordion({ conversation, onViewDetails }) {
 function ConversationModal({ conversation, onClose, apiSource }) {
   const [convo, setConvo] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [report, setReport] = useState(null);
 
   useEffect(() => {
     if (conversation?.sessionId) {
       apiSource.getConversation(conversation.sessionId)
         .then(({ data }) => {
           setConvo(data.conversation);
+          setReport(data.conversation?.report);
           setLoading(false);
         })
         .catch(() => setLoading(false));
     }
   }, [conversation, apiSource]);
+
+  const handleGenerateReport = async () => {
+    if (!conversation?._id) return;
+    setReportLoading(true);
+    try {
+      const { data } = await apiSource.generateConversationReport(conversation._id);
+      setReport(data.report);
+      toast.success('Report generated successfully');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   return (
     <div
@@ -277,52 +315,109 @@ function ConversationModal({ conversation, onClose, apiSource }) {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {convo?.messages?.map((m, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  flexDirection: m.role === 'user' ? 'row-reverse' : 'row',
-                }}>
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: '50%',
-                    background:
-                      m.role === 'assistant'
-                        ? 'linear-gradient(135deg, #3b6cf4, #7c9ae0)'
-                        : 'rgba(255,255,255,0.1)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 12,
-                    flexShrink: 0,
-                  }}>
-                  {m.role === 'assistant' ? '🤖' : '👤'}
-                </div>
-                <div
-                  style={{
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    fontSize: 13,
-                    lineHeight: 1.6,
-                    background:
-                      m.role === 'assistant'
-                        ? 'rgba(255,255,255,0.05)'
-                        : 'rgba(59,108,244,0.15)',
-                    border: `1px solid ${
-                      m.role === 'assistant'
-                        ? 'rgba(255,255,255,0.07)'
-                        : 'rgba(59,108,244,0.25)'
-                    }`,
-                    maxWidth: '80%',
-                  }}>
-                  {m.content}
-                </div>
+            {/* MESSAGES SECTION */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Interview Messages
               </div>
-            ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 12, padding: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
+                {convo?.messages?.map((m, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      gap: 10,
+                      flexDirection: m.role === 'user' ? 'row-reverse' : 'row',
+                    }}>
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: '50%',
+                        background:
+                          m.role === 'assistant'
+                            ? 'linear-gradient(135deg, #3b6cf4, #7c9ae0)'
+                            : 'rgba(255,255,255,0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 12,
+                        flexShrink: 0,
+                      }}>
+                      {m.role === 'assistant' ? '🤖' : '👤'}
+                    </div>
+                    <div
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 12,
+                        fontSize: 13,
+                        lineHeight: 1.6,
+                        background:
+                          m.role === 'assistant'
+                            ? 'rgba(255,255,255,0.05)'
+                            : 'rgba(59,108,244,0.15)',
+                        border: `1px solid ${
+                          m.role === 'assistant'
+                            ? 'rgba(255,255,255,0.07)'
+                            : 'rgba(59,108,244,0.25)'
+                        }`,
+                        maxWidth: '80%',
+                      }}>
+                      {m.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* REPORT SECTION */}
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 8 }}>
+                📊 Interview Report
+                {report?.pdfUrl && (
+                  <span style={{ fontSize: 10, color: '#4ade80', background: 'rgba(74,222,128,0.1)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+                    Generated
+                  </span>
+                )}
+              </div>
+              {report?.pdfUrl ? (
+                <div style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
+                    Report generated on {new Date(report.uploadedAt).toLocaleString()}
+                  </div>
+                  <a 
+                    href={report.pdfUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ display: 'inline-block', padding: '8px 16px', background: '#4ade80', color: '#000', borderRadius: 8, fontSize: 12, fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }}>
+                    📥 Download Report (PDF)
+                  </a>
+                </div>
+              ) : (
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 12 }}>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>
+                    No report generated yet. Generate one to create a PDF summary of this interview.
+                  </div>
+                  <button
+                    onClick={handleGenerateReport}
+                    disabled={reportLoading || !convo?.isActive === false}
+                    style={{
+                      padding: '8px 16px',
+                      background: reportLoading ? 'rgba(255,255,255,0.1)' : 'rgba(59,108,244,0.2)',
+                      border: '1px solid rgba(59,108,244,0.4)',
+                      borderRadius: 8,
+                      color: '#7c9ae0',
+                      cursor: reportLoading ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      fontFamily: 'inherit',
+                      opacity: reportLoading ? 0.6 : 1,
+                    }}>
+                    {reportLoading ? '⏳ Generating...' : '📝 Generate Report'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

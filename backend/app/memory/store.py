@@ -4,9 +4,30 @@ import redis
 import json
 import logging
 from typing import List
-from app.config import REDIS_HOST, REDIS_PORT, REDIS_DB
+from datetime import datetime
+from app.config import REDIS_HOST, REDIS_PORT, REDIS_DB, MONGODB_URL, MONGODB_DATABASE
 
 logger = logging.getLogger(__name__)
+
+# MongoDB client (lazy-loaded)
+_mongo_client = None
+_mongo_db = None
+
+def get_mongodb():
+    """Get MongoDB client and database connection."""
+    global _mongo_client, _mongo_db
+    try:
+        if _mongo_client is None:
+            from pymongo import MongoClient
+            _mongo_client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+            # Test connection
+            _mongo_client.admin.command('ping')
+            _mongo_db = _mongo_client[MONGODB_DATABASE]
+            logger.debug(f"Connected to MongoDB: {MONGODB_DATABASE}")
+        return _mongo_db
+    except Exception as e:
+        logger.warning(f"MongoDB connection failed: {e}")
+        return None
 
 
 class MemoryStore:
@@ -40,17 +61,40 @@ class MemoryStore:
 
     def get_conversation(self, conversation_id: str) -> List[str]:
         try:
+            # Try Redis first (fast)
             data = self.client.get(conversation_id)
-            if not data:
-                return []
-            return json.loads(data)
+            if data:
+                return json.loads(data)
+            
+            # Fall back to MongoDB if Redis is empty
+            db = get_mongodb()
+            if db:
+                try:
+                    doc = db.conversations.find_one(
+                        {"sessionId": conversation_id},
+                        {"messages": 1}
+                    )
+                    if doc and "messages" in doc:
+                        messages = doc["messages"]
+                        # Rehydrate to Redis for next access
+                        self.client.setex(
+                            conversation_id,
+                            self.ttl_seconds,
+                            json.dumps(messages),
+                        )
+                        logger.debug(f"Retrieved conversation {conversation_id} from MongoDB")
+                        return messages
+                except Exception as e:
+                    logger.warning(f"Failed to retrieve conversation {conversation_id} from MongoDB: {e}")
+            
+            return []
         except Exception as e:
             logger.error(f"Error getting conversation {conversation_id}: {e}")
             return []
 
     def save_conversation(self, conversation_id: str, conversation: List[str]):
         try:
-            # Save conversation with TTL
+            # 1. Save to Redis (fast, hot cache with TTL)
             self.client.setex(
                 conversation_id,
                 self.ttl_seconds,
@@ -58,6 +102,28 @@ class MemoryStore:
             )
             # Track conversation ID for admin purposes
             self.client.sadd(self.CONVERSATION_INDEX_KEY, conversation_id)
+            logger.debug(f"Saved conversation {conversation_id} to Redis")
+            
+            # 2. Also save to MongoDB (persistent storage)
+            db = get_mongodb()
+            if db:
+                try:
+                    # Upsert conversation to MongoDB
+                    db.conversations.update_one(
+                        {"sessionId": conversation_id},
+                        {
+                            "$set": {
+                                "messages": conversation,
+                                "lastUpdated": datetime.utcnow(),
+                                "source": "python_backend",
+                            }
+                        },
+                        upsert=True
+                    )
+                    logger.debug(f"Saved conversation {conversation_id} to MongoDB")
+                except Exception as e:
+                    logger.warning(f"Failed to save conversation {conversation_id} to MongoDB: {e}")
+                    # Don't fail the entire operation if MongoDB is unavailable
         except Exception as e:
             logger.error(f"Error saving conversation {conversation_id}: {e}")
 

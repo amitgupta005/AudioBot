@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import logging
+import asyncio
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -7,6 +9,9 @@ from app.agent.schema import CandidateReport, IntentResponse, InterviewDecision
 from app.agent.state import AgentState
 from app.config import SYSTEM_MESSAGE, GROQ_MODEL
 from app.reports.pdf import build_candidate_report_pdf
+from app.services.cloudinary_service import upload_pdf_to_cloudinary
+
+logger = logging.getLogger(__name__)
 
 llm = ChatGroq(
     model=GROQ_MODEL,
@@ -246,45 +251,90 @@ def close_interview_node(state: AgentState) -> dict:
 
 def report_generator_node(state: AgentState) -> dict:
     if not state.get("interview_complete"):
+        return {"report_status": state.get("report_status")}
+
+    try:
+        structured_llm = llm.with_structured_output(CandidateReport)
+        conversation = _clean_history(state)
+        transcript_lines = [f"{msg.type.upper()}: {msg.content}" for msg in conversation]
+        prompt = "\n".join(transcript_lines) if transcript_lines else "No interview transcript available."
+        
+        session_id = state.get("session_id") or "session"
+        logger.info(f"🔄 Generating report for session {session_id}")
+        
+        report = structured_llm.invoke([
+            SystemMessage(content="Evaluate the candidate fairly based on JD, Resume, and Transcript."),
+            HumanMessage(content=f"JD: {state.get('jd_text')}\nResume: {state.get('resume_text')}\nTranscript: {prompt}")
+        ])
+        
+        report_payload = report.model_dump()
+        
+        # Build the PDF
+        report_pdf_path = build_candidate_report_pdf(
+            session_id=session_id,
+            report=report_payload,
+            summary=report.summary,
+            recommendation=report.recommendation,
+            transcript_lines=transcript_lines,
+        )
+
+        cloudinary_url = None
+        try:
+            cloudinary_result = upload_pdf_to_cloudinary(
+                file_path=report_pdf_path,
+                file_name=f"report-{session_id}"
+            )
+            
+            if cloudinary_result.get("success"):
+                cloudinary_url = cloudinary_result.get("secure_url")
+        except Exception as e:
+            logger.warning(f"⚠️ Cloudinary upload error: {e}")
+        
+        # Fallback to local path if Cloudinary fails
+        report_download_url = cloudinary_url or f"/admin/conversations/{session_id}/report.pdf"
+        
+        # SYNC TO MONGODB: Pass the URL, Summary, and Recommendation
+        # This ensures the Admin Panel has all the data it needs to display
+        _sync_report_to_mongodb(
+            session_id, 
+            report_download_url, 
+            report.summary, 
+            report.recommendation
+        )
+        
         return {
-            "report_status": state.get("report_status"),
+            "report_status": "ready",
+            "candidate_report": report_payload,
+            "candidate_scores": report.scores.model_dump(),
+            "candidate_summary": report.summary,
+            "hiring_recommendation": report.recommendation,
+            "report_pdf_path": report_pdf_path,
+            "report_download_url": report_download_url,
+            "report_cloudinary_url": cloudinary_url,
         }
+    except Exception as e:
+        logger.error(f"❌ Error in report_generator_node: {e}", exc_info=True)
+        return {"report_status": "error"}
 
-    structured_llm = llm.with_structured_output(CandidateReport)
-    conversation = _clean_history(state)
-    transcript_lines = [f"{msg.type.upper()}: {msg.content}" for msg in conversation]
-    prompt = "\n".join(transcript_lines) if transcript_lines else "No interview transcript available."
-    report = structured_llm.invoke([
-        SystemMessage(
-            content=(
-                "You are a hiring evaluation subagent. Evaluate the candidate using the full interview transcript, "
-                "resume, and job description. Score fairly and explain the decision in the structured response."
-            )
-        ),
-        HumanMessage(
-            content=(
-                f"Job description:\n{state.get('jd_text') or 'N/A'}\n\n"
-                f"Resume:\n{state.get('resume_text') or 'N/A'}\n\n"
-                f"Interview transcript:\n{prompt}"
-            )
-        ),
-    ])
-    report_payload = report.model_dump()
-    report_pdf_path = build_candidate_report_pdf(
-        session_id=state.get("session_id") or "session",
-        report=report_payload,
-        summary=report.summary,
-        recommendation=report.recommendation,
-        transcript_lines=transcript_lines,
-    )
-    report_download_url = f"/admin/conversations/{state.get('session_id') or 'session'}/report.pdf"
+def _sync_report_to_mongodb(session_id: str, report_url: str, summary: str, recommendation: str):
+    """Sync report data to MongoDB in a background thread."""
+    def _update():
+        try:
+            from app.services.mongo_service import MongoService
+            # Update multiple fields at once so the Admin Panel is fully populated
+            update_data = {
+                "report.pdfUrl": report_url,
+                "report.uploadedAt": datetime.now(timezone.utc),
+                "report.generatedAt": datetime.now(timezone.utc),
+                "report_status": "ready",
+                "candidate_summary": summary,
+                "hiring_recommendation": recommendation,
+            }
+            # Use update_conversation or similar method that uses $set
+            MongoService.update_conversation(session_id, update_data)
+            logger.info(f"✅ Successfully synced report data to MongoDB for {session_id}")
+        except Exception as e:
+            logger.error(f"❌ MongoDB sync failed: {e}")
 
-    return {
-        "report_status": "ready",
-        "candidate_report": report_payload,
-        "candidate_scores": report.scores.model_dump(),
-        "candidate_summary": report.summary,
-        "hiring_recommendation": report.recommendation,
-        "report_pdf_path": report_pdf_path,
-        "report_download_url": report_download_url,
-    }
+    import threading
+    threading.Thread(target=_update, daemon=True).start()

@@ -1,7 +1,10 @@
 import axios from 'axios';
 
-
-
+// Dedicated instance for direct backend calls (no auth needed)
+const backendApi = axios.create({ 
+  baseURL: 'http://localhost:8000',
+  timeout: 5000
+});
 
 // NEW: Dedicated instance for the JD Upload Service (8080)
 const jdApi = axios.create({ 
@@ -59,10 +62,32 @@ export const adminApi = {
   banUser: (id, reason) => api.post(`/admin/users/${id}/ban`, { reason }),
   unbanUser: (id) => api.post(`/admin/users/${id}/unban`),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
-  // Conversations
-  getConversations: (params) => api.get('/admin/conversations', { params }),
-  getConversation: (sessionId) => api.get(`/admin/conversations/${sessionId}`),
+  // Conversations - fetch directly from backend MongoDB
+  getConversations: (params) => 
+    backendApi.get('/admin/conversations', { params })
+      .then(res => res)
+      .catch(err => {
+        console.warn('Failed to fetch conversations from backend:', err.message);
+        return { data: { success: false, conversations: [], total: 0 } };
+      }),
+  getConversation: (sessionId) => 
+    backendApi.get(`/admin/conversations/${sessionId}`)
+      .then(res => res)
+      .catch(err => {
+        console.warn(`Failed to fetch conversation ${sessionId}:`, err.message);
+        return { data: { success: false, conversation: null } };
+      }),
   endConversation: (sessionId) => api.post(`/admin/conversations/${sessionId}/end`),
+  // Report - fetch directly from checkpoint via backend (fallback if MongoDB sync fails)
+  getConversationReportInfo: (conversationId) => 
+    backendApi.get(`/conversations/${conversationId}/report-info`)
+      .then(res => res)
+      .catch(err => {
+        console.warn(`Failed to fetch report info for ${conversationId}:`, err.message);
+        return { data: { success: false, report_download_url: null, report_status: 'error' } };
+      }),
+  generateConversationReport: (conversationId) => api.post(`/admin/conversation/${conversationId}/report.pdf`),
+  getConversationReport: (conversationId) => api.get(`/admin/conversation/${conversationId}/report`),
   // Sessions
   getSessions: () => api.get('/admin/sessions'),
   terminateSession: (sessionId) => api.delete(`/admin/sessions/${sessionId}`),
@@ -89,6 +114,8 @@ export const companyApi = {
   getJob: (jobId) => api.get(`/company/jobs/${jobId}`),
   getJobConversations: (jobId, params) => api.get(`/company/jobs/${jobId}/conversations`, { params }),
   getConversation: (sessionId) => api.get(`/conversations/${sessionId}`),
+  generateConversationReport: (conversationId) => api.post(`/admin/conversation/${conversationId}/report.pdf`),
+  getConversationReport: (conversationId) => api.get(`/admin/conversation/${conversationId}/report`),
   uploadJD: (file, jobId) => {
     const formData = new FormData();
     formData.append('jd', file);

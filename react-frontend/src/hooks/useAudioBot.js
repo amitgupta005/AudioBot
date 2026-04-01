@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 
-const useAudioBot = (sessionId) => {
+const useAudioBot = (sessionId, jobId) => {
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -17,8 +17,12 @@ const useAudioBot = (sessionId) => {
     // Fallback to a default if ID is missing so the connection doesn't fail
     const idToUse = currentSessionId || sessionId || "default-session";
     
-    // Connect directly to your FastAPI backend
-    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+    // Connect directly to your FastAPI backend with jobId as query param
+    let wsUrl = "ws://127.0.0.1:8000/ws";
+    if (jobId) {
+      wsUrl += `?jobId=${encodeURIComponent(jobId)}`;
+    }
+    const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer"; // Required to receive the audio_bytes from FastAPI
     wsRef.current = ws;
 

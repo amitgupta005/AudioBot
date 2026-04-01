@@ -19,7 +19,13 @@ const TokenService = {
   },
 
   generateTokenPair(user) {
-    const payload = { id: user._id, email: user.email, role: user.role };
+    const payload = { 
+      id: user._id, 
+      email: user.email, 
+      role: user.role,
+      jobId: user.jobId || null,
+      companyId: user.companyId || null
+    };
     return {
       accessToken: this.generateAccessToken(payload),
       refreshToken: this.generateRefreshToken(payload),
