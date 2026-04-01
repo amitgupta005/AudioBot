@@ -5,7 +5,6 @@ import io
 import logging
 import os
 import pdfplumber
-import httpx
 from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -104,60 +103,6 @@ def _resolve_system_message(channel_values: dict) -> dict:
     }
 
 
-async def _sync_initial_messages_to_mongodb(session_id: str):
-    """
-    Sync all initial messages from Redis checkpoint to MongoDB.
-    Called after thread initialization to persist initial/greeting messages.
-    """
-    try:
-        config = {"configurable": {"thread_id": session_id}}
-        checkpoint_tuple = agent.checkpointer.get_tuple(config)
-        
-        if checkpoint_tuple and checkpoint_tuple.checkpoint:
-            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-            conversation = channel_values.get("conversation", [])
-            
-            # Extract messages for syncing
-            messages = []
-            for msg in conversation:
-                msg_type = getattr(msg, "type", "unknown")
-                msg_content = getattr(msg, "content", str(msg))
-                
-                # Skip system initialization markers
-                if msg_content == "SYSTEM_INITIALIZATION":
-                    continue
-                
-                # Only include human and assistant messages
-                if msg_type in ["human", "assistant"]:
-                    messages.append({
-                        "role": "user" if msg_type == "human" else "assistant",
-                        "content": msg_content,
-                        "type": "text"
-                    })
-            
-            # Sync to middleware if there are messages
-            if messages:
-                logger.info(f"🔄 Syncing {len(messages)} initial messages from Redis to MongoDB for {session_id}")
-                try:
-                    async with httpx.AsyncClient() as client:
-                        await client.post(
-                            "http://localhost:4001/conversations/internal/sync-full-conversation",
-                            json={
-                                "sessionId": session_id,
-                                "messages": messages,
-                                "source": "python_backend_init"
-                            },
-                            timeout=5.0
-                        )
-                        logger.info(f"✅ Synced {len(messages)} initial messages to MongoDB for {session_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to sync initial messages: {e}")
-            else:
-                logger.debug(f"ℹ️  No initial messages to sync for {session_id}")
-    except Exception as e:
-        logger.warning(f"Error syncing initial messages for {session_id}: {e}")
-
-
 # ============================================================
 # UPLOAD ENDPOINTS
 # ============================================================
@@ -172,15 +117,6 @@ async def upload_resume(
     try:
         resume_bytes = await resume.read()
         resume_text = extract_pdf_text(resume_bytes)
-        
-        # Verify or create conversation in MongoDB
-        from app.services.mongo_service import MongoService
-        conv = MongoService.get_conversation(session_id)
-        if not conv:
-            # If not found (might be a sync delay from node-middleware), create it
-            # This is a fallback - ideally should be created via POST /conversations/start
-            MongoService.create_conversation(session_id)
-            logger.info(f"ℹ️  Created conversation {session_id} in fallback")
         
         # Initialize LangGraph thread state
         _initialize_thread_state(session_id, {"resume_text": resume_text})
@@ -209,15 +145,6 @@ async def upload_jd(
     try:
         jd_bytes = await jd.read()
         jd_text = extract_pdf_text(jd_bytes)
-        
-        # Verify or create conversation in MongoDB
-        from app.services.mongo_service import MongoService
-        conv = MongoService.get_conversation(session_id)
-        if not conv:
-            # If not found (might be a sync delay from node-middleware), create it
-            # This is a fallback - ideally should be created via POST /conversations/start
-            MongoService.create_conversation(session_id)
-            logger.info(f"ℹ️  Created conversation {session_id} in fallback")
         
         # Initialize LangGraph thread state
         _initialize_thread_state(session_id, {"jd_text": jd_text})
