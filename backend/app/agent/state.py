@@ -11,7 +11,6 @@ class AgentState(TypedDict):
 
     # user input for current turn
     user_input: str
-    session_id: Optional[str]
 
     # full conversation history
     conversation: List[BaseMessage]
@@ -31,16 +30,11 @@ class AgentState(TypedDict):
 
     # interview lifecycle
     question_count: int
-    should_ask_followup: bool
+    is_satisfied: bool
+    satisfaction_reason: str
     interview_complete: bool
-    completion_reason: Optional[str]
-    interview_closed_at: Optional[str]
 
     # post-interview evaluation report
-    report_status: Optional[str]
     candidate_report: Optional[dict]
-    candidate_scores: Optional[dict]
-    candidate_summary: Optional[str]
-    hiring_recommendation: Optional[str]
-    report_pdf_path: Optional[str]
     report_download_url: Optional[str]
+    candidate_report_pdf: Optional[str]

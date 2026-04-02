@@ -68,3 +68,13 @@ REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB
 # Application settings
 APP_NAME = "AudioBot - Conversational AI"
 APP_VERSION = "0.2.0"
+
+# Database configuration
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://user:password@localhost:5432/audiobot"
+)
+# Security
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))

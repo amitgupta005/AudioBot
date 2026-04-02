@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from langchain_groq import ChatGroq
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from app.agent.schema import CandidateReport, IntentResponse, InterviewDecision
+from app.agent.schema import CandidateReport, IntentResponse, InterviewDecision,ResponseInterview
 from app.agent.state import AgentState
 from app.config import SYSTEM_MESSAGE, GROQ_MODEL
 from app.reports.pdf import build_candidate_report_pdf
@@ -17,10 +17,25 @@ llm = ChatGroq(
 )
 
 
-def intent_classifier_node(state: AgentState) -> dict:
-    if state.get("user_input") == "SYSTEM_INITIALIZATION":
-        return {"intent": "chat"}
+def intent_classifier_node(state: AgentState) -> AgentState:
 
+    existing_question_count = int(state.get("question_count", 0) or 0)
+
+    user_input = state.get("user_input",None)
+    jd_text = state.get("jd_text",None)
+    resume_text = state.get("resume_text",None)
+    if user_input is None or user_input.strip() == "":
+        state["intent"] = "END"
+        return state
+    if existing_question_count==0 and (jd_text is None or resume_text is None):
+        state["intent"] = "END"
+        return state
+    if existing_question_count==0 and (jd_text is not None and resume_text is not None):
+        state["intent"] = "chat"
+        state['system_message']=SYSTEM_MESSAGE.format(jd_text=jd_text, resume_text=resume_text)
+        state['conversation']=[SystemMessage(content=state['system_message'])]
+        state['intent']="chat"
+        return state
     structured_llm = llm.with_structured_output(IntentResponse)
     system_instruction = """
         You are an intent classifier. Your ONLY job is to output the correct intent.
@@ -28,203 +43,97 @@ def intent_classifier_node(state: AgentState) -> dict:
         - clarify: ONLY if the user input is complete gibberish or noise.
         - chat: For all normal interview responses, greetings, and generic conversation.
     """
+    ai_message=state.get("conversation",[])[-1].content
     messages = [
         SystemMessage(content=system_instruction),
-        HumanMessage(content=state['user_input']),
+        AIMessage(content=ai_message),
+        HumanMessage(content=user_input),
     ]
 
     response = structured_llm.invoke(messages)
     return {"intent": response.intent}
 
-def _stored_conversation(state: AgentState) -> list[BaseMessage]:
-    conversation = state.get("conversation", [])
-    return [msg for msg in conversation if isinstance(msg, BaseMessage)]
-
-
-def _resolved_system_message(state: AgentState) -> str:
-    system_template = state.get("system_message") or SYSTEM_MESSAGE
-    jd_text = state.get("jd_text")
-    resume_text = state.get("resume_text")
-
-    if jd_text and resume_text and "{" in system_template:
-        try:
-            return system_template.format(jd_text=jd_text, resume_text=resume_text)
-        except Exception:
-            return system_template
-
-    return system_template
-
-
-def _clean_history(state: AgentState) -> list[BaseMessage]:
-    return [
-        msg for msg in _stored_conversation(state)
-        if not (isinstance(msg, HumanMessage) and msg.content == "SYSTEM_INITIALIZATION")
-    ]
-
-
-def _conversation_with_resolved_system(state: AgentState) -> list[BaseMessage]:
-    history = _clean_history(state)
-    resolved_system = SystemMessage(content=_resolved_system_message(state))
-
-    if history and isinstance(history[0], SystemMessage):
-        history[0] = resolved_system
-        return history
-
-    return [resolved_system, *history]
-
-
-def _base_messages_for_turn(state: AgentState) -> list[BaseMessage]:
-    return _conversation_with_resolved_system(state)
-
-
-def _with_current_user_message(messages: list[BaseMessage], state: AgentState) -> list[BaseMessage]:
-    user_input = state.get("user_input", "")
-    if user_input and user_input != "SYSTEM_INITIALIZATION":
-        return messages + [HumanMessage(content=user_input)]
-    return messages
-
-
-def clarify_node(state: AgentState) -> dict:
+def clarify_node(state: AgentState) -> AgentState:
     response = "I'm not fully sure what you want yet. Could you please clarify or give a bit more detail?"
-    conversation = _conversation_with_resolved_system(state)
-    conversation.append(HumanMessage(content=state["user_input"]))
-    conversation.append(AIMessage(content=response))
-    return {
-        "conversation": conversation,
-        "output": response,
-        "should_ask_followup": False,
-        "interview_complete": False,
-        "completion_reason": "in_progress",
-        "report_status": state.get("report_status"),
-    }
+    return {"output": response}
 
-
-def interview_evaluator_node(state: AgentState) -> dict:
+def interview_evaluator_node(state: AgentState) -> AgentState:
     user_input = state.get("user_input", "")
+    # initialize question count to zero if not present (at start of interview)
     existing_question_count = int(state.get("question_count", 0) or 0)
-
-    if state.get("interview_complete"):
-        return {
-            "should_ask_followup": False,
-            "interview_complete": True,
-            "completion_reason": state.get("completion_reason") or "satisfied",
-            "question_count": existing_question_count,
-            "report_status": state.get("report_status") or "ready",
-        }
-
-    if user_input == "SYSTEM_INITIALIZATION":
-        return {
-            "should_ask_followup": False,
-            "interview_complete": False,
-            "completion_reason": "in_progress",
-            "question_count": existing_question_count,
-            "report_status": state.get("report_status"),
-        }
 
     if existing_question_count >= 10:
         return {
-            "is_satisfied": True,
-            "should_end_interview": True,
-            "should_ask_followup": False,
-            "completion_reason": "max_questions",
-            "question_count": existing_question_count,
-            "report_status": state.get("report_status"),
-        }
-
-    if existing_question_count < 8:
-        return {
-            "is_satisfied": False,
-            "should_end_interview": False,
-            "should_ask_followup": True,
-            "completion_reason": "in_progress",
-            "question_count": existing_question_count,
-            "report_status": state.get("report_status"),
+            "interview_complete":True
         }
 
     structured_llm = llm.with_structured_output(InterviewDecision)
-    messages = _with_current_user_message(_base_messages_for_turn(state), state)
-    messages.append(
-        SystemMessage(
-            content=(
-                "You are deciding whether an HR interview should continue. "
-                f"The interview has already asked {existing_question_count} questions. "
-                "Rules: do not end before 8 questions, always end at 10 questions, "
-                "and only continue if another question is genuinely needed to assess the candidate. "
-                "Return structured output only."
-            )
-        )
+    conversation = state.get("conversation",[])
+    messages = [msg for msg in conversation if isinstance(msg, BaseMessage)]
+    evaluator_prompt = (
+        "You are deciding whether an HR interview should continue. "
+        f"The interview has already asked {existing_question_count} questions. "
+        "Evaluate whether you are satisfied(True) or not(False) with the interview till now and mention the reason for this decision "
+        "Return structured output only."
     )
+    if messages:
+        messages[0] = SystemMessage(content=evaluator_prompt)
+    else:
+        messages = [
+            SystemMessage(content=evaluator_prompt),
+            HumanMessage(content=user_input),
+        ]
     decision = structured_llm.invoke(messages)
 
-    should_end = decision.should_end_interview or existing_question_count >= 10
-    completion_reason = decision.completion_reason
-    if should_end and completion_reason == "in_progress":
-        completion_reason = "satisfied"
-
-    return {
-        "is_satisfied": decision.is_satisfied,
-        "should_ask_followup": False if should_end else decision.should_ask_followup,
-        "interview_complete": should_end,
-        "completion_reason": completion_reason,
-        "question_count": existing_question_count,
-        "report_status": state.get("report_status"),
-    }
-
-
-def ask_question_node(state: AgentState) -> dict:
-    messages = _base_messages_for_turn(state)
-    user_input = state.get("user_input", "")
-    question_count = int(state.get("question_count", 0) or 0)
-
-    if user_input == "SYSTEM_INITIALIZATION":
+    should_end=decision.is_satisfied.lower()=='true'
+    if should_end and existing_question_count<=10:
         return {
-            "output": "Initialized",
-            "conversation": messages,
-            "question_count": question_count,
-            "interview_complete": False,
-            "completion_reason": "in_progress",
-            "report_status": state.get("report_status"),
+            "interview_complete":True,
+            "question_count":existing_question_count,
+            "is_satisfied":should_end,
+            "satisfaction_reason":decision.satisfaction_reason
         }
-
-    messages = _with_current_user_message(messages, state)
-    messages.append(
-        SystemMessage(
-            content=(
-                "You are conducting a structured HR interview. "
-                "Ask exactly one substantive interview question in this reply. "
-                "Do not evaluate the candidate. Do not ask multiple questions. "
-                "Base the next question on the resume, JD, and prior answers."
-            )
-        )
-    )
-    response = llm.invoke(messages)
-    output_text = response.content
-    new_history = _conversation_with_resolved_system(state) + [
-        HumanMessage(content=user_input),
-        AIMessage(content=output_text),
-    ]
-
     return {
-        "output": output_text,
-        "conversation": new_history,
-        "question_count": question_count + 1,
-        "should_ask_followup": True,
-        "interview_complete": False,
-        "completion_reason": "in_progress",
-        "report_status": None,
+        "interview_complete":False,
+        "question_count":existing_question_count,
+        "is_satisfied":should_end,
+        "satisfaction_reason":decision.satisfaction_reason
     }
 
+def ask_question_node(state: AgentState) -> AgentState:
+    messages=[]
+    user_input = state.get("user_input", "")
+    # if state.get("question_count",0)==0:
+    #     system_template = SYSTEM_MESSAGE
+    #     jd_text = state.get("jd_text", "N/A")
+    #     resume_text = state.get("resume_text", "N/A")
+    #     formatted_message = system_template.format(jd_text=jd_text, resume_text=resume_text)
+    #     messages.append(SystemMessage(content=formatted_message))
+    #     state['system_message']=formatted_message
+        
+    # else:
+    messages = state.get("conversation",[])
+    
+    messages.append(HumanMessage(content=user_input))
+    structured_llm = llm.with_structured_output(ResponseInterview)
+    response = structured_llm.invoke(messages)
+    output_text = response.acknowledgement + "\n\n" + response.question
+    new_history = messages + [AIMessage(content=output_text)]
+    state['output'] = output_text
+    state['conversation'] = new_history
+    state['question_count'] = state.get("question_count",0)+1
+    return state
 
 def close_interview_node(state: AgentState) -> dict:
-    messages = _base_messages_for_turn(state)
+    messages = state.get("conversation",[])[1:]
     user_input = state.get("user_input", "")
     question_count = int(state.get("question_count", 0) or 0)
-    completion_reason = state.get("completion_reason") or "satisfied"
-
-    if user_input and user_input != "SYSTEM_INITIALIZATION":
-        messages.append(HumanMessage(content=user_input))
-
-    messages.append(
+    messages.append(HumanMessage(content=user_input))
+    structured_llm = llm.with_structured_output(ResponseInterview)
+    response = structured_llm.invoke(messages)
+    output = response.acknowledgement
+    messages.insert(
+        0,
         SystemMessage(
             content=(
                 "The interview is complete. Write a concise, professional closing message. "
@@ -232,34 +141,20 @@ def close_interview_node(state: AgentState) -> dict:
             )
         )
     )
-    response = llm.invoke(messages)
-    output_text = response.content
-    new_history = _conversation_with_resolved_system(state)
-    if user_input and user_input != "SYSTEM_INITIALIZATION":
-        new_history.append(HumanMessage(content=user_input))
-    new_history.append(AIMessage(content=output_text))
-
+    closing_response = llm.invoke(messages)
+    output_text = output + "\n" + closing_response.content
+    messages.append(AIMessage(content=output_text))
     return {
         "output": output_text,
-        "conversation": new_history,
-        "question_count": question_count,
-        "should_ask_followup": False,
-        "interview_complete": True,
-        "completion_reason": completion_reason,
-        "interview_closed_at": datetime.now(timezone.utc).isoformat(),
-        "report_status": "pending",
+        "conversation": messages
     }
 
 
-def report_generator_node(state: AgentState) -> dict:
-    if not state.get("interview_complete"):
-        return {
-            "report_status": state.get("report_status"),
-        }
+def report_generator_node(state: AgentState,config) -> dict:
 
     structured_llm = llm.with_structured_output(CandidateReport)
-    conversation = _clean_history(state)
-    transcript_lines = [f"{msg.type.upper()}: {msg.content}" for msg in conversation]
+    conversation = state.get("conversation",[])[1:]
+    transcript_lines = [f"{msg.type.upper()}:\n  {msg.content}" for msg in conversation]
     prompt = "\n".join(transcript_lines) if transcript_lines else "No interview transcript available."
     report = structured_llm.invoke([
         SystemMessage(
@@ -276,22 +171,19 @@ def report_generator_node(state: AgentState) -> dict:
             )
         ),
     ])
+    thread_id=config.get("configurable", {}).get("thread_id",'default_session')
     report_payload = report.model_dump()
     report_pdf_path = build_candidate_report_pdf(
-        session_id=state.get("session_id") or "session",
+        session_id=thread_id,
         report=report_payload,
         summary=report.summary,
         recommendation=report.recommendation,
         transcript_lines=transcript_lines,
     )
-    report_download_url = f"/admin/conversations/{state.get('session_id') or 'session'}/report.pdf"
+    report_download_url = f"/admin/conversations/{thread_id}/report.pdf"
 
     return {
-        "report_status": "ready",
         "candidate_report": report_payload,
-        "candidate_scores": report.scores.model_dump(),
-        "candidate_summary": report.summary,
-        "hiring_recommendation": report.recommendation,
-        "report_pdf_path": report_pdf_path,
-        "report_download_url": report_download_url,
+        "candidate_report_pdf":report_pdf_path,
+        "report_download_url": report_download_url
     }

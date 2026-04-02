@@ -20,8 +20,10 @@ def route_by_intent(state: AgentState) -> str:
 
     if intent == "clarify":
         return "clarify"
-    else:
+    elif intent == "chat":
         return "interview_evaluator"
+    else:
+        return "END"
 
 
 def route_interview(state: AgentState) -> str:
@@ -49,6 +51,7 @@ def build_agent():
         {
             "interview_evaluator": "interview_evaluator",
             "clarify": "clarify",
+            "END": END,
         },
     )
 

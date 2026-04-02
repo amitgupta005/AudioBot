@@ -3,16 +3,25 @@
 import io
 import logging
 import os
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 
 import pdfplumber
-from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form, Depends, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import BaseMessage, SystemMessage
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime
 
+
+from app.core.security import hash_password, create_access_token, get_current_user, verify_password
+from app.core.database import get_db
 from app.dependencies import agent
 from app.websocket import websocket_handler
 from app.config import APP_NAME, APP_VERSION, SYSTEM_MESSAGE
+from app.models.users import User
 
 # Configure logging ONCE for the entire application
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +38,86 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================
+# AUTH ROUTES
+# ============================================================
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    company_name: Optional[str | None] = None
+    role: str 
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: EmailStr
+    full_name: str
+    company_name: Optional[str | None] = None
+    role: str 
+    created_at: datetime
+    updated_at: datetime
+    model_config = {"from_attributes": True}
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserResponse
+
+
+@app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED, response_model=TokenResponse)
+async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
+    existing_user = await db.execute(select(User).where(User.email == payload.email))
+    existing_user = existing_user.scalar_one_or_none()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    user=User(
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        full_name=payload.full_name,
+        company_name=payload.company_name,
+        role=payload.role,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    token = create_access_token(data={"sub": str(user.id),"role":user.role})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
+    )
+
+@app.post("/api/v1/auth/login", status_code=status.HTTP_200_OK, response_model=TokenResponse)
+async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == payload.email))
+    user = result.scalar_one_or_none()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+    token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
+    )
+
+@app.get("/api/v1/auth/me", status_code=status.HTTP_200_OK, response_model=UserResponse)
+async def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+#===============================
+# API for interview
+#===============================
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -55,96 +144,23 @@ def _thread_channel_values(session_id: str) -> dict:
     return {}
 
 
-def _resolve_system_message_values(values: dict) -> str:
-    system_template = values.get("system_message") or SYSTEM_MESSAGE
-    jd_text = values.get("jd_text")
-    resume_text = values.get("resume_text")
-
-    if jd_text and resume_text and "{" in system_template:
-        try:
-            return system_template.format(jd_text=jd_text, resume_text=resume_text)
-        except Exception:
-            return system_template
-
-    return system_template
-
-
-def _updated_conversation(channel_values: dict, merged_values: dict) -> list[BaseMessage]:
-    conversation = channel_values.get("conversation", [])
-    messages = [msg for msg in conversation if isinstance(msg, BaseMessage)]
-    system_entry = SystemMessage(content=_resolve_system_message_values(merged_values))
-
-    if messages and isinstance(messages[0], SystemMessage):
-        messages[0] = system_entry
-        return messages
-
-    return [system_entry, *messages]
-
-
 def _initialize_thread_state(session_id: str, new_values: dict):
     """
     Idiomatic LangGraph: Store state in the checkpointer.
     If the thread doesn't exist, we seed it with an initial invoke.
     """
     config = {"configurable": {"thread_id": session_id}}
-    channel_values = _thread_channel_values(session_id)
-    merged_values = {
-        **channel_values,
-        **new_values,
-        "system_message": SYSTEM_MESSAGE,
-    }
-    conversation = _updated_conversation(channel_values, merged_values)
-    state_update = {
-        **new_values,
-        "system_message": SYSTEM_MESSAGE,
-        "conversation": conversation,
-    }
 
     try:
-        agent.update_state(config, state_update)
+        agent.update_state(config, new_values)
         logger.info(f"Updated state for thread {session_id}")
     except Exception:
         logger.info(f"Initializing new thread {session_id} with state {list(new_values.keys())}")
         initial_state = {
-            "session_id": session_id,
-            "user_input": "SYSTEM_INITIALIZATION",
-            "conversation": conversation,
             "system_message": SYSTEM_MESSAGE,
-            "intent": "clarify",
-            "question_count": 0,
-            "should_ask_followup": False,
-            "interview_complete": False,
-            "completion_reason": "in_progress",
-            "interview_closed_at": None,
-            "report_status": None,
-            "candidate_report": None,
-            "candidate_scores": None,
-            "candidate_summary": None,
-            "hiring_recommendation": None,
-            "report_pdf_path": None,
-            "report_download_url": None,
             **new_values
         }
         agent.invoke(initial_state, config=config)
-
-
-def _resolve_system_message(channel_values: dict) -> dict:
-    system_template = channel_values.get("system_message") or SYSTEM_MESSAGE
-    jd_text = channel_values.get("jd_text")
-    resume_text = channel_values.get("resume_text")
-
-    if jd_text and resume_text and "{" in system_template:
-        try:
-            resolved = system_template.format(jd_text=jd_text, resume_text=resume_text)
-        except Exception:
-            resolved = system_template
-    else:
-        resolved = system_template
-
-    return {
-        "template": system_template,
-        "resolved": resolved,
-    }
 
 
 # ============================================================
@@ -167,6 +183,7 @@ async def upload_resume(
             "status": "success",
             "session_id": session_id,
             "resume_chars": len(resume_text),
+            "resume_text": resume_text,
             "message": "Resume uploaded and stored in agent state.",
         }
     except ValueError as e:
@@ -192,6 +209,7 @@ async def upload_jd(
             "status": "success",
             "session_id": session_id,
             "jd_chars": len(jd_text),
+            "jd_text": jd_text,
             "message": "Job description uploaded and stored in agent state.",
         }
     except ValueError as e:
@@ -200,9 +218,9 @@ async def upload_jd(
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
 
 
-# -----------------------
+# ============================================================
 # Admin API
-# -----------------------
+# ============================================================
 
 @app.get("/admin/conversations")
 def list_conversations():
@@ -249,18 +267,8 @@ def get_conversation(conversation_id: str):
                     "jd_text": channel_values.get("jd_text"),
                     "resume_text": channel_values.get("resume_text"),
                 },
-                "system_message": _resolve_system_message(channel_values),
-                "question_count": channel_values.get("question_count", 0),
-                "interview_complete": bool(channel_values.get("interview_complete")),
-                "completion_reason": channel_values.get("completion_reason"),
-                "interview_closed_at": channel_values.get("interview_closed_at"),
-                "report_status": channel_values.get("report_status"),
                 "candidate_report": channel_values.get("candidate_report"),
-                "candidate_scores": channel_values.get("candidate_scores"),
-                "candidate_summary": channel_values.get("candidate_summary"),
-                "hiring_recommendation": channel_values.get("hiring_recommendation"),
-                "report_pdf_path": channel_values.get("report_pdf_path"),
-                "report_download_url": channel_values.get("report_download_url"),
+                "candidate_report_pdf": channel_values.get("candidate_report_pdf"),
             }
     except Exception as e:
         logger.error(f"Error reading checkpoint: {e}")
@@ -275,7 +283,7 @@ def download_conversation_report(conversation_id: str):
     checkpoint_tuple = agent.checkpointer.get_tuple(config)
     if checkpoint_tuple and checkpoint_tuple.checkpoint:
         channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-        report_pdf_path = channel_values.get("report_pdf_path")
+        report_pdf_path = channel_values.get("candidate_report_pdf")
         if report_pdf_path and os.path.exists(report_pdf_path):
             return FileResponse(
                 report_pdf_path,
