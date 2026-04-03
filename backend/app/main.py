@@ -1,9 +1,8 @@
-# backend/app/main.py
-
 import io
 import logging
 import os
-from pydantic import BaseModel, EmailStr
+from enum import Enum
+from datetime import datetime, timezone
 from typing import Optional
 
 import pdfplumber
@@ -13,10 +12,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import BaseMessage, SystemMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime
+from pydantic import BaseModel, EmailStr, field_validator
 
 
-from app.core.security import hash_password, create_access_token, get_current_user, verify_password
+from app.core.security import (
+    hash_password, 
+    create_access_token, 
+    get_current_user, 
+    verify_password,
+    require_recruiter,
+    require_admin
+)
 from app.core.database import get_db
 from app.dependencies import agent
 from app.websocket import websocket_handler
@@ -42,19 +48,50 @@ app.add_middleware(
 # AUTH ROUTES
 # ============================================================
 
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    CANDIDATE = "candidate"
+    RECRUITER = "recruiter"
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
     company_name: Optional[str | None] = None
-    role: str 
+    role: UserRole = UserRole.CANDIDATE
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.lower().strip()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        # if len(v) < 8:
+        #     raise ValueError("Password must be at least 8 characters long")
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 bytes or fewer for bcrypt compatibility")
+        return v
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.lower().strip()
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must be 72 bytes or fewer for bcrypt compatibility")
+        return v
+
 class UserResponse(BaseModel):
-    id: int
+    id: str  # Updated to str to match UUID
     email: EmailStr
     full_name: str
     company_name: Optional[str | None] = None
@@ -71,8 +108,8 @@ class TokenResponse(BaseModel):
 
 @app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED, response_model=TokenResponse)
 async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
-    existing_user = await db.execute(select(User).where(User.email == payload.email))
-    existing_user = existing_user.scalar_one_or_none()
+    result = await db.execute(select(User).where(User.email == payload.email))
+    existing_user = result.scalar_one_or_none()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -83,12 +120,12 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,
         company_name=payload.company_name,
-        role=payload.role,
+        role=payload.role.value,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    token = create_access_token(data={"sub": str(user.id),"role":user.role})
+    token = create_access_token(data={"sub": str(user.id), "role": user.role})
     return TokenResponse(
         access_token=token,
         token_type="bearer",
@@ -102,7 +139,7 @@ async def login(payload: UserLogin, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
+            detail="Invalid email or password",
         )
     token = create_access_token(data={"sub": str(user.id), "role": user.role})
     return TokenResponse(
@@ -119,7 +156,7 @@ async def me(current_user: User = Depends(get_current_user)):
 # API for interview
 #===============================
 
-@app.websocket("/ws")
+@app.websocket("/api/v1/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket_handler(websocket)
 
@@ -222,7 +259,7 @@ async def upload_jd(
 # Admin API
 # ============================================================
 
-@app.get("/admin/conversations")
+@app.get("/api/v1/admin/conversations", dependencies=[Depends(require_recruiter)])
 def list_conversations():
     """
     Returns unique conversation IDs from the LangGraph checkpointer.
@@ -240,7 +277,7 @@ def list_conversations():
         return {"conversations": []}
 
 
-@app.get("/admin/conversations/{conversation_id}")
+@app.get("/api/v1/admin/conversations/{conversation_id}", dependencies=[Depends(require_recruiter)])
 def get_conversation(conversation_id: str):
     """
     Returns the conversation history and document context from the checkpointer.
@@ -277,7 +314,7 @@ def get_conversation(conversation_id: str):
     raise HTTPException(status_code=404, detail="Conversation not found")
 
 
-@app.get("/admin/conversations/{conversation_id}/report.pdf")
+@app.get("/api/v1/admin/conversations/{conversation_id}/report.pdf", dependencies=[Depends(require_recruiter)])
 def download_conversation_report(conversation_id: str):
     config = {"configurable": {"thread_id": conversation_id}}
     checkpoint_tuple = agent.checkpointer.get_tuple(config)
@@ -299,12 +336,12 @@ def download_conversation_report(conversation_id: str):
 # Monitoring / Health API
 # -----------------------
 
-@app.get("/health")
+@app.get("/api/v1/admin/health", dependencies=[Depends(require_admin)])
 def health():
     return {"status": "ok"}
 
 
-@app.get("/health/llm")
+@app.get("/api/v1/admin/health/llm", dependencies=[Depends(require_admin)])
 def health_llm():
     try:
         from langchain_groq import ChatGroq

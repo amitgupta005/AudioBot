@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SAEnum
 # from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
@@ -14,8 +14,8 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     role: Mapped[str] = mapped_column(SAEnum("admin", "candidate","recruiter",name="user_role"), nullable=False, default="candidate")
 
     def __repr__(self):

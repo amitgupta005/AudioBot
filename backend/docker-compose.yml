@@ -1,32 +1,35 @@
-version: "3.9"
-
 services:
 
   backend:
-    build: ./backend
+    build: .
     container_name: audiobot-backend
     ports:
       - "8000:8000"
     environment:
-      - OLLAMA_MODEL=llama3.1
       - REDIS_HOST=redis
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/audiobot
     depends_on:
       - redis
-      - ollama
+      - db
 
   redis:
-    image: redis:7
+    image: redis/redis-stack:latest
     container_name: audiobot-redis
     ports:
       - "6379:6379"
+      - "8001:8001" # RedisInsight UI
 
-  ollama:
-    image: ollama/ollama
-    container_name: audiobot-ollama
+  db:
+    image: postgres:15
+    container_name: audiobot-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: audiobot
     ports:
-      - "11434:11434"
+      - "5432:5432"
     volumes:
-      - ollama-data:/root/.ollama
+      - postgres_data:/var/lib/postgresql/data
 
   nginx:
     image: nginx:latest
@@ -34,10 +37,10 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./frontend:/usr/share/nginx/html
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ../frontend:/usr/share/nginx/html
+      - ../nginx/default.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       - backend
 
 volumes:
-  ollama-data:
+  postgres_data:
