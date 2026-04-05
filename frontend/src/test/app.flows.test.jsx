@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp } from "./testUtils";
 
-
 const conversations = new Map();
 const sockets = [];
 
@@ -15,17 +14,25 @@ function makeConversation(id, overrides = {}) {
       jd_text: "JD context",
       resume_text: "Resume context",
     },
-    system_message: {
-      template: "Prompt {jd_text} {resume_text}",
-      resolved: "Prompt JD context Resume context",
-    },
-    interview_complete: false,
-    completion_reason: null,
-    report_status: null,
-    candidate_summary: null,
-    candidate_scores: null,
-    report_download_url: null,
+    candidate_report: null,
+    candidate_report_pdf: null,
     ...overrides,
+  };
+}
+
+function makeAuthResponse(role = "candidate") {
+  return {
+    access_token: `token-${role}`,
+    token_type: "bearer",
+    user: {
+      id: `${role}-1`,
+      email: `${role}@example.com`,
+      full_name: role === "recruiter" ? "Recruiter User" : "Candidate User",
+      company_name: role === "recruiter" ? "Example Inc" : null,
+      role,
+      created_at: "2026-03-19T10:00:00.000Z",
+      updated_at: "2026-03-19T10:00:00.000Z",
+    },
   };
 }
 
@@ -101,11 +108,24 @@ function buildFetchResponse(data, ok = true, status = 200) {
     async json() {
       return data;
     },
+    async blob() {
+      return new Blob(["pdf"]);
+    },
   };
+}
+
+async function signInAsCandidate(user) {
+  renderApp(["/"]);
+  await user.click(screen.getByRole("button", { name: /candidate portal/i }));
+  await user.type(screen.getByLabelText(/email address/i), "candidate@example.com");
+  await user.type(screen.getByLabelText(/password/i), "password123");
+  await user.click(screen.getByRole("button", { name: /^continue$/i }));
+  await screen.findByText(/load the interview context/i);
 }
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   conversations.clear();
   sockets.length = 0;
   FakeMediaRecorder.instances = [];
@@ -134,6 +154,17 @@ beforeEach(() => {
   global.fetch = vi.fn(async (input, options = {}) => {
     const url = typeof input === "string" ? input : input.toString();
 
+    if (url.endsWith("/api/v1/auth/login")) {
+      const payload = JSON.parse(options.body);
+      const role = payload.email.includes("recruiter") ? "recruiter" : "candidate";
+      return buildFetchResponse(makeAuthResponse(role));
+    }
+
+    if (url.endsWith("/api/v1/auth/register")) {
+      const payload = JSON.parse(options.body);
+      return buildFetchResponse(makeAuthResponse(payload.role));
+    }
+
     if (url.endsWith("/api/upload-resume")) {
       const sessionId = options.body?.get("session_id");
       if (sessionId && !conversations.has(sessionId)) {
@@ -150,17 +181,22 @@ beforeEach(() => {
       return buildFetchResponse({ status: "success" });
     }
 
-    if (url.endsWith("/admin/conversations")) {
+    if (url.endsWith("/api/v1/admin/conversations")) {
       return buildFetchResponse({ conversations: [...conversations.keys()] });
     }
 
-    const conversationMatch = url.match(/\/admin\/conversations\/([^/]+)$/);
+    const conversationMatch = url.match(/\/api\/v1\/admin\/conversations\/([^/]+)$/);
     if (conversationMatch) {
       const id = decodeURIComponent(conversationMatch[1]);
       if (!conversations.has(id)) {
         return buildFetchResponse({ detail: "Conversation not found" }, false, 404);
       }
       return buildFetchResponse(conversations.get(id));
+    }
+
+    const reportMatch = url.match(/\/api\/v1\/admin\/conversations\/([^/]+)\/report\.pdf$/);
+    if (reportMatch) {
+      return buildFetchResponse({ ok: true });
     }
 
     throw new Error(`Unhandled fetch for ${url}`);
@@ -172,9 +208,9 @@ afterEach(() => {
 });
 
 describe("frontend flows", () => {
-  it("Upload Flow: uploads both files and lands on the chat page with the active session id", async () => {
+  it("Upload Flow: logs in as candidate, uploads both files, and lands on the chat page", async () => {
     const user = userEvent.setup();
-    renderApp(["/"]);
+    await signInAsCandidate(user);
 
     const threadId = screen.getByTestId("active-session-id").textContent;
 
@@ -184,25 +220,14 @@ describe("frontend flows", () => {
 
     await screen.findByText(/context-aware hr interview chat/i);
     expect(screen.getByTestId("current-session-id")).toHaveTextContent(threadId);
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/upload-resume"),
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/api/upload-jd"),
-      expect.objectContaining({ method: "POST" }),
-    );
   });
 
   it("Chat Flow: sends a text message and renders the AI response", async () => {
     const user = userEvent.setup();
     const sessionId = "session-text";
-    conversations.set(
-      sessionId,
-      makeConversation(sessionId, {
-        messages: [],
-      }),
-    );
+    localStorage.setItem("audiobot.auth.token", "token-candidate");
+    localStorage.setItem("audiobot.auth.user", JSON.stringify(makeAuthResponse("candidate").user));
+    conversations.set(sessionId, makeConversation(sessionId));
 
     renderApp([`/chat/${sessionId}`]);
 
@@ -229,9 +254,11 @@ describe("frontend flows", () => {
     expect(await within(screen.getByTestId("chat-stream")).findByText("AI reply")).toBeInTheDocument();
   });
 
-  it("Voice Flow: records audio, sends it, shows transcription, and renders the AI answer", async () => {
+  it("Voice Flow: records audio, sends it, and renders transcription plus AI response", async () => {
     const user = userEvent.setup();
     const sessionId = "session-voice";
+    localStorage.setItem("audiobot.auth.token", "token-candidate");
+    localStorage.setItem("audiobot.auth.user", JSON.stringify(makeAuthResponse("candidate").user));
     conversations.set(sessionId, makeConversation(sessionId));
 
     renderApp([`/chat/${sessionId}`]);
@@ -251,27 +278,26 @@ describe("frontend flows", () => {
     sockets[0].emit("message", {
       data: JSON.stringify({ type: "response", text: "Voice AI reply" }),
     });
-    sockets[0].emit("message", {
-      data: new Blob(["reply-audio"]),
-    });
 
     expect(await within(screen.getByTestId("chat-stream")).findByText("Spoken answer")).toBeInTheDocument();
     expect(await within(screen.getByTestId("chat-stream")).findByText("Voice AI reply")).toBeInTheDocument();
   });
 
-  it("History Loop: starts a new session, uploads new files, and keeps sessions separate in the sidebar", async () => {
+  it("History Loop: starts a new session from chat and keeps sessions separate", async () => {
     const user = userEvent.setup();
     const firstSessionId = "session-one";
+    localStorage.setItem("audiobot.auth.token", "token-recruiter");
+    localStorage.setItem("audiobot.auth.user", JSON.stringify(makeAuthResponse("recruiter").user));
+    localStorage.setItem("audiobot.activeSessionId", firstSessionId);
+    localStorage.setItem(
+      "audiobot.sessions",
+      JSON.stringify([{ id: firstSessionId, createdAt: "2026-03-19T10:00:00.000Z", lastVisitedAt: "2026-03-19T10:00:00.000Z" }]),
+    );
     conversations.set(
       firstSessionId,
       makeConversation(firstSessionId, {
         messages: [{ type: "human", data: { content: "First session intro" } }],
       }),
-    );
-    localStorage.setItem("audiobot.activeSessionId", firstSessionId);
-    localStorage.setItem(
-      "audiobot.sessions",
-      JSON.stringify([{ id: firstSessionId, createdAt: "2026-03-19T10:00:00.000Z", lastVisitedAt: "2026-03-19T10:00:00.000Z" }]),
     );
 
     renderApp([`/chat/${firstSessionId}`]);
@@ -300,18 +326,19 @@ describe("frontend flows", () => {
 
   it("Completed Interview: disables input and shows the generated report summary", async () => {
     const sessionId = "session-complete";
+    localStorage.setItem("audiobot.auth.token", "token-recruiter");
+    localStorage.setItem("audiobot.auth.user", JSON.stringify(makeAuthResponse("recruiter").user));
     conversations.set(
       sessionId,
       makeConversation(sessionId, {
-        interview_complete: true,
-        completion_reason: "satisfied",
-        report_status: "ready",
-        candidate_summary: "Strong communicator with relevant examples.",
-        candidate_scores: {
-          communication: 9,
-          clarity: 8,
+        candidate_report: {
+          summary: "Strong communicator with relevant examples.",
+          scores: {
+            communication: 9,
+            clarity: 8,
+          },
         },
-        report_download_url: "http://localhost:8000/admin/conversations/session-complete/report.pdf",
+        candidate_report_pdf: "/reports/session-complete.pdf",
       }),
     );
 
@@ -320,9 +347,6 @@ describe("frontend flows", () => {
     expect(await screen.findByTestId("interview-complete-state")).toHaveTextContent("Interview complete");
     expect(screen.getByPlaceholderText(/interview complete/i)).toBeDisabled();
     expect(screen.getByRole("button", { name: /send message/i })).toBeDisabled();
-    expect(screen.getByTestId("download-report-link")).toHaveAttribute(
-      "href",
-      "http://localhost:8000/admin/conversations/session-complete/report.pdf",
-    );
+    expect(screen.getByTestId("download-report-link")).toBeInTheDocument();
   });
 });

@@ -88,9 +88,11 @@ async def websocket_handler(websocket: WebSocket):
 
             # Process with LangGraph Agent
             try:
+                persisted_state = _session_channel_values(conversation_id)
                 state = {
+                    **persisted_state,
                     "user_input": str(user_text),
-                    "system_message": SYSTEM_MESSAGE,
+                    "system_message": persisted_state.get("system_message", SYSTEM_MESSAGE),
                     "session_id": conversation_id,
                 }
                 config = {"configurable": {"thread_id": conversation_id}}

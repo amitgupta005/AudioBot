@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import Sidebar from "../components/Sidebar";
+import { clearAuthSession, getAuthUser } from "../lib/authStore";
 import {
   buildConversationReportUrl,
   createChatSocket,
+  downloadConversationReport,
   fetchConversation,
   fetchConversationIds,
   resolveApiUrl,
 } from "../lib/api";
-import {
-  listKnownSessions,
-  startNewSession,
-  touchSession,
-} from "../lib/sessionStore";
+import { listKnownSessions, startNewSession, touchSession } from "../lib/sessionStore";
 
 function dedupeSessions(localSessions, remoteIds, currentSessionId) {
   const map = new Map();
@@ -34,10 +31,77 @@ function dedupeSessions(localSessions, remoteIds, currentSessionId) {
   return Array.from(map.values());
 }
 
+function formatClock(value) {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
+function formatSessionTime(value) {
+  if (!value) {
+    return "No activity yet";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function buildUiMessage(type, content, createdAt = new Date().toISOString()) {
+  return { type, content, createdAt };
+}
+
+function dedupeTranscript(messages) {
+  return messages.filter((message) => message.type !== "system");
+}
+
+function normalizeConversationPayload(conversation, sessionId) {
+  const transcript = (conversation.messages || []).map((message, index) => ({
+    type: message.type,
+    content: message.data?.content || "",
+    createdAt: message.data?.created_at || new Date(Date.now() - (conversation.messages.length - index) * 60000).toISOString(),
+  }));
+  const systemMessage = transcript.find((message) => message.type === "system")?.content || "";
+  const visibleMessages = dedupeTranscript(transcript);
+  const report = conversation.candidate_report || null;
+
+  return {
+    messages: visibleMessages,
+    systemMessage,
+    interviewComplete: Boolean(report),
+    completionReason: "",
+    reportStatus: conversation.candidate_report_pdf ? "ready" : report ? "generated" : "",
+    candidateSummary: report?.summary || "",
+    candidateScores: report?.scores || null,
+    reportDownloadUrl: resolveApiUrl(
+      conversation.candidate_report_pdf ? buildConversationReportUrl(sessionId) : "",
+    ),
+  };
+}
+
 export default function ChatPage() {
   const { sessionId = "" } = useParams();
   const navigate = useNavigate();
+  const user = getAuthUser();
+  const isRecruiterView = user?.role === "recruiter" || user?.role === "admin";
   const socketRef = useRef(null);
+  const sendLockRef = useRef(false);
   const recorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -58,6 +122,8 @@ export default function ChatPage() {
   const [candidateSummary, setCandidateSummary] = useState("");
   const [candidateScores, setCandidateScores] = useState(null);
   const [reportDownloadUrl, setReportDownloadUrl] = useState("");
+  const [activityNote, setActivityNote] = useState("Waiting for your next message.");
+  const [panelTab, setPanelTab] = useState("conversation");
 
   useEffect(() => {
     touchSession(sessionId);
@@ -66,9 +132,24 @@ export default function ChatPage() {
   useEffect(() => {
     let active = true;
 
-    async function loadSidebarData() {
+    async function loadSessionState() {
       setLoading(true);
       setError("");
+
+      if (!isRecruiterView) {
+        setMessages([]);
+        setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
+        setSystemMessage("");
+        setInterviewComplete(false);
+        setCompletionReason("");
+        setReportStatus("");
+        setCandidateSummary("");
+        setCandidateScores(null);
+        setReportDownloadUrl("");
+        setActivityNote("Context loaded. Start with a short introduction to kick off the interview.");
+        setLoading(false);
+        return;
+      }
 
       try {
         const [conversation, conversationIds] = await Promise.all([
@@ -80,19 +161,22 @@ export default function ChatPage() {
           return;
         }
 
-        const transcript = (conversation.messages || []).map((message) => ({
-          type: message.type,
-          content: message.data?.content || "",
-        }));
-
-        setMessages(transcript);
-        setSystemMessage(conversation.system_message?.resolved || "");
-        setInterviewComplete(Boolean(conversation.interview_complete));
-        setCompletionReason(conversation.completion_reason || "");
-        setReportStatus(conversation.report_status || "");
-        setCandidateSummary(conversation.candidate_summary || "");
-        setCandidateScores(conversation.candidate_scores || null);
-        setReportDownloadUrl(resolveApiUrl(conversation.report_download_url || ""));
+        const nextState = normalizeConversationPayload(conversation, sessionId);
+        setMessages(nextState.messages);
+        setSystemMessage(nextState.systemMessage);
+        setInterviewComplete(nextState.interviewComplete);
+        setCompletionReason(nextState.completionReason);
+        setReportStatus(nextState.reportStatus);
+        setCandidateSummary(nextState.candidateSummary);
+        setCandidateScores(nextState.candidateScores);
+        setReportDownloadUrl(nextState.reportDownloadUrl);
+        setActivityNote(
+          nextState.interviewComplete
+            ? "Interview is complete. Review the summary and download the report."
+            : nextState.messages.length
+              ? "Session restored. You can continue from the latest question."
+              : "Context loaded. Start with a short introduction to kick off the interview."
+        );
         setSessions(dedupeSessions(listKnownSessions(), conversationIds, sessionId));
       } catch (loadError) {
         if (!active) {
@@ -108,6 +192,7 @@ export default function ChatPage() {
         setCandidateSummary("");
         setCandidateScores(null);
         setReportDownloadUrl("");
+        setActivityNote("Upload the JD and resume to initialize this session.");
         setError(loadError.message || "Could not load this session yet. Upload documents first.");
       } finally {
         if (active) {
@@ -116,11 +201,11 @@ export default function ChatPage() {
       }
     }
 
-    loadSidebarData();
+    loadSessionState();
     return () => {
       active = false;
     };
-  }, [sessionId]);
+  }, [isRecruiterView, sessionId]);
 
   useEffect(() => {
     const socket = createChatSocket();
@@ -148,7 +233,7 @@ export default function ChatPage() {
             audio.addEventListener("ended", () => URL.revokeObjectURL(audioUrl), { once: true });
             await audio.play();
           } catch {
-            // Binary audio is optional for the UI; keep chat functional even if playback fails.
+            // Audio playback is optional for the UI.
           }
           return;
         }
@@ -157,7 +242,9 @@ export default function ChatPage() {
         if (payload.error) {
           setError(payload.error);
           setSending(false);
+          sendLockRef.current = false;
           setRecording(false);
+          setActivityNote(payload.error);
           if (payload.interview_complete) {
             setInterviewComplete(true);
             setCompletionReason(payload.completion_reason || "");
@@ -168,40 +255,48 @@ export default function ChatPage() {
         }
 
         if (payload.type === "transcription") {
-          setMessages((current) => [...current, { type: "human", content: payload.text }]);
+          setMessages((current) => [...current, buildUiMessage("human", payload.text)]);
+          setActivityNote("Voice note captured. Waiting for AudioBot's reply.");
+          setPanelTab("conversation");
           return;
         }
 
         if (payload.type === "response") {
-          setMessages((current) => [...current, { type: "ai", content: payload.text }]);
+          setMessages((current) => [...current, buildUiMessage("ai", payload.text)]);
           setSending(false);
+          sendLockRef.current = false;
           setRecording(false);
           setInterviewComplete(Boolean(payload.interview_complete));
           setCompletionReason(payload.completion_reason || "");
           setReportStatus(payload.report_status || "");
           setReportDownloadUrl(resolveApiUrl(payload.report_download_url || ""));
+          setActivityNote(
+            payload.interview_complete
+              ? "Interview complete. Pulling the latest report details now."
+              : "AudioBot responded. You're ready for the next turn."
+          );
 
-          try {
-            const conversation = await fetchConversation(sessionId);
-            const transcript = (conversation.messages || []).map((message) => ({
-              type: message.type,
-              content: message.data?.content || "",
-            }));
-            setMessages(transcript);
-            setSystemMessage(conversation.system_message?.resolved || "");
-            setInterviewComplete(Boolean(conversation.interview_complete));
-            setCompletionReason(conversation.completion_reason || "");
-            setReportStatus(conversation.report_status || "");
-            setCandidateSummary(conversation.candidate_summary || "");
-            setCandidateScores(conversation.candidate_scores || null);
-            setReportDownloadUrl(resolveApiUrl(conversation.report_download_url || ""));
-          } catch {
-            // Keep optimistic state if admin fetch is temporarily unavailable.
+          if (isRecruiterView) {
+            try {
+              const conversation = await fetchConversation(sessionId);
+              const nextState = normalizeConversationPayload(conversation, sessionId);
+              setMessages(nextState.messages);
+              setSystemMessage(nextState.systemMessage);
+              setInterviewComplete(nextState.interviewComplete);
+              setCompletionReason(nextState.completionReason);
+              setReportStatus(nextState.reportStatus);
+              setCandidateSummary(nextState.candidateSummary);
+              setCandidateScores(nextState.candidateScores);
+              setReportDownloadUrl(nextState.reportDownloadUrl);
+            } catch {
+              // Keep optimistic state if admin fetch is unavailable.
+            }
           }
         }
       } catch {
         setError("Unexpected message received from the backend.");
         setSending(false);
+        sendLockRef.current = false;
         setRecording(false);
       }
     });
@@ -209,66 +304,41 @@ export default function ChatPage() {
     return () => {
       socket.close();
     };
-  }, [sessionId]);
+  }, [isRecruiterView, sessionId]);
 
-  useEffect(() => {
-    return () => {
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop();
-      }
-
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    function handleKeydown(event) {
-      if (event.key !== "Enter" || event.shiftKey) {
-        return;
-      }
-
-      const activeTag = document.activeElement?.tagName;
-      const isTyping = activeTag === "TEXTAREA" || activeTag === "INPUT";
-
-      if (recording) {
-        event.preventDefault();
-        handleVoiceToggle();
-        return;
-      }
-
-      if (isTyping && input.trim() && !interviewComplete) {
-        event.preventDefault();
-        handleSend(event);
-      }
+  useEffect(() => () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      recorderRef.current.stop();
     }
 
-    window.addEventListener("keydown", handleKeydown);
-    return () => {
-      window.removeEventListener("keydown", handleKeydown);
-    };
-  }, [input, interviewComplete, recording, socketState, sending, sessionId]);
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+  }, []);
 
   function handleSend(event) {
     event?.preventDefault?.();
     const trimmed = input.trim();
 
     if (
-      !trimmed ||
-      sending ||
-      recording ||
-      interviewComplete ||
-      !socketRef.current ||
-      socketRef.current.readyState !== WebSocket.OPEN
+      sendLockRef.current
+      || !trimmed
+      || sending
+      || recording
+      || interviewComplete
+      || !socketRef.current
+      || socketRef.current.readyState !== WebSocket.OPEN
     ) {
       return;
     }
 
+    sendLockRef.current = true;
     setError("");
     setSending(true);
-    setMessages((current) => [...current, { type: "human", content: trimmed }]);
+    setActivityNote("Message sent. AudioBot is analyzing your response.");
+    setMessages((current) => [...current, buildUiMessage("human", trimmed)]);
     setInput("");
+    setPanelTab("conversation");
     socketRef.current.send(
       JSON.stringify({
         type: "text",
@@ -280,7 +350,26 @@ export default function ChatPage() {
 
   function handleNewSession() {
     startNewSession();
+    navigate("/candidate");
+  }
+
+  function handleSignOut() {
+    clearAuthSession();
     navigate("/");
+  }
+
+  async function handleDownloadReport() {
+    try {
+      const blob = await downloadConversationReport(sessionId);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${sessionId}-candidate-report.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (downloadError) {
+      setError(downloadError.message || "Unable to download report.");
+    }
   }
 
   async function handleVoiceToggle() {
@@ -324,13 +413,16 @@ export default function ChatPage() {
         try {
           const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
           audioChunksRef.current = [];
+          sendLockRef.current = true;
           setSending(true);
           setRecording(false);
+          setActivityNote("Uploading your voice answer for transcription.");
           socketRef.current.send(JSON.stringify({ type: "audio", conversation_id: sessionId }));
           socketRef.current.send(audioBlob);
         } catch {
           setError("Audio capture failed.");
           setSending(false);
+          sendLockRef.current = false;
           setRecording(false);
         } finally {
           if (mediaStreamRef.current) {
@@ -342,14 +434,10 @@ export default function ChatPage() {
 
       recorder.start();
       setRecording(true);
+      setActivityNote("Recording your response. Press again to stop.");
     } catch {
       setError("Microphone permission was denied.");
     }
-  }
-
-  function handleSelectSession(nextSessionId) {
-    touchSession(nextSessionId);
-    navigate(`/chat/${nextSessionId}`);
   }
 
   useEffect(() => {
@@ -366,94 +454,220 @@ export default function ChatPage() {
     }
 
     chatStreamRef.current.scrollTop = chatStreamRef.current.scrollHeight;
-  }, [messages]);
+  }, [messages, panelTab]);
+
+  const currentQuestion = [...messages].reverse().find((message) => message.type === "ai")?.content
+    || "Upload context and answer the first prompt when it appears.";
+  const recentSessionLabel = sessions[0]?.lastVisitedAt || sessions[0]?.createdAt;
+  const transcriptText = messages
+    .map((message) => `${message.type === "human" ? "Candidate" : "AudioBot"}: ${message.content}`)
+    .join("\n\n");
 
   return (
-    <main className="chat-layout">
-      <Sidebar
-        currentSessionId={sessionId}
-        onNewSession={handleNewSession}
-        onSelectSession={handleSelectSession}
-        onToggleSystem={() => setSystemExpanded((value) => !value)}
-        sessions={sessions}
-        socketState={socketState}
-        systemExpanded={systemExpanded}
-        systemMessage={systemMessage}
-      />
-
-      <section className="chat-stage">
-        <header className="chat-header">
-          <div>
-            <p className="eyebrow">Interview Console</p>
-            <h1>Context-aware HR interview chat</h1>
-          </div>
-          <span className={`socket-pill ${socketState}`}>{socketState}</span>
-        </header>
-
-        <div className="chat-stream" data-testid="chat-stream" ref={chatStreamRef}>
-          {loading ? <p className="empty-copy">Loading session state...</p> : null}
-          {!loading && messages.length === 0 ? (
-            <p className="empty-copy">
-              Start with an introduction. The backend will use the uploaded JD and resume to steer
-              the interview.
-            </p>
-          ) : null}
-          {messages.map((message, index) => (
-            <article key={`${message.type}-${index}`} className={`bubble ${message.type}`}>
-              <span>{message.type === "human" ? "You" : "AudioBot"}</span>
-              <p>{message.content}</p>
-            </article>
-          ))}
+    <main className="interview-shell">
+      <header className="interview-topbar">
+        <div>
+          <p className="brand-mark">AudioBot</p>
         </div>
+        <nav aria-label="Portal navigation" className="interview-portals">
+          {(user?.role === "recruiter" || user?.role === "admin") ? (
+            <button className="portal-tab" onClick={() => navigate("/recruiter")} type="button">
+              Recruiter Access
+            </button>
+          ) : null}
+          <button className="portal-tab is-active" type="button">
+            Candidate Portal
+          </button>
+          <button className="ghost-button" onClick={handleSignOut} type="button">
+            Sign out
+          </button>
+        </nav>
+      </header>
 
-        <form className="composer" onSubmit={handleSend}>
-          <textarea
-            disabled={interviewComplete}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={interviewComplete ? "Interview complete. Start a new session to continue." : "Type your answer or ask for clarification..."}
-            readOnly={interviewComplete}
-            rows={4}
-            value={input}
-          />
-          <div className="composer-footer">
-            <p className="hint-copy">
-              Session history is persisted by the backend under thread id <code>{sessionId}</code>.
-            </p>
-            <div className="composer-actions">
-              <button
-                className={`secondary-button ${recording ? "recording" : ""}`}
-                disabled={sending || socketState !== "open" || interviewComplete}
-                onClick={handleVoiceToggle}
-                type="button"
-              >
-                {recording ? "Stop Recording" : "Record Voice"}
-              </button>
-              <button className="primary-button" disabled={sending || socketState !== "open" || interviewComplete} type="submit">
-                {sending ? "Sending..." : "Send Message"}
-              </button>
-            </div>
+      <section className="session-banner">
+        <div className="session-banner-status">
+          <span className={`session-dot ${socketState}`} />
+          <span>Live Interview Session</span>
+        </div>
+        <div className="session-banner-identity">
+          <span className="ai-badge">AI</span>
+          <div>
+            <strong>{user?.full_name || user?.email || "Candidate"} & AudioBot</strong>
+            <p>{activityNote}</p>
           </div>
-          {interviewComplete ? (
-            <div className="hint-copy" data-testid="interview-complete-state">
-              Interview complete{completionReason ? ` (${completionReason.replace("_", " ")})` : ""}.
-              {reportStatus ? ` Report status: ${reportStatus}.` : ""}
-              {candidateSummary ? ` Summary: ${candidateSummary}` : ""}
-              {candidateScores ? ` Communication ${candidateScores.communication}/10, Clarity ${candidateScores.clarity}/10.` : ""}
+        </div>
+      </section>
+
+      <section className="interview-grid">
+        <section className="interview-main-column">
+          <article className="interviewer-stage-card">
+            <div className="stage-copy">
+              <p className="eyebrow">AI Interviewer</p>
+              <h1>AudioBot Interview Agent</h1>
+              <p className="stage-subtitle">
+                {recording
+                  ? "Listening to your answer and capturing your response."
+                  : sending
+                    ? "\"Analyzing your response and preparing the next observation...\""
+                    : "The interview is live. Speak naturally or type when you want precision."}
+              </p>
             </div>
-          ) : null}
-          {interviewComplete && reportStatus === "ready" ? (
-            <a
-              className="primary-button"
-              data-testid="download-report-link"
-              href={reportDownloadUrl || buildConversationReportUrl(sessionId)}
-              target="_blank"
-              rel="noreferrer"
+            <div className={`waveform ${recording ? "is-recording" : sending ? "is-active" : ""}`} aria-hidden="true">
+              {Array.from({ length: 7 }).map((_, index) => (
+                <span key={index} style={{ animationDelay: `${index * 0.09}s` }} />
+              ))}
+            </div>
+          </article>
+
+          <div className="interview-info-grid">
+            <article className="question-card">
+              <div className="question-icon">Q</div>
+              <div>
+                <p className="eyebrow">Current Question</p>
+                <p className="question-text">{currentQuestion}</p>
+              </div>
+            </article>
+
+            <article className="candidate-presence-card">
+              <div className="candidate-avatar-card">
+                <div className="candidate-avatar">{(user?.full_name || user?.email || "C").slice(0, 1).toUpperCase()}</div>
+                <span className={`presence-dot ${socketState === "open" ? "is-live" : ""}`} />
+              </div>
+              <div className="candidate-presence-copy">
+                <strong>{user?.full_name || "Candidate Session"}</strong>
+                <span>{user?.role === "recruiter" || user?.role === "admin" ? "Recruiter review mode" : "Candidate interview mode"}</span>
+                <div className="presence-meter">
+                  <span>Input</span>
+                  <div className="presence-bars" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <section className="session-utility-row">
+            <div className="session-progress-card">
+              <span className="session-track-icon">◦</span>
+              <div className="session-progress-track">
+                <span style={{ width: `${Math.min(100, Math.max(messages.length, 1) * 12)}%` }} />
+              </div>
+              <span className="session-progress-note">
+                {recentSessionLabel ? `Last active ${formatSessionTime(recentSessionLabel)}` : "Fresh session"}
+              </span>
+            </div>
+            <button
+              className={`control-button ${recording ? "is-live" : ""}`}
+              disabled={sending || socketState !== "open" || interviewComplete}
+              onClick={handleVoiceToggle}
+              type="button"
             >
-              Download Report
-            </a>
+              {recording ? "Stop Recording" : "Record Voice"}
+            </button>
+            <button className="control-button" onClick={() => setSystemExpanded((value) => !value)} type="button">
+              {systemExpanded ? "Hide Prompt" : "View Prompt"}
+            </button>
+            {interviewComplete && reportStatus === "ready" ? (
+              <button className="control-button emphasis" data-testid="download-report-link" onClick={handleDownloadReport} type="button">
+                Download Report
+              </button>
+            ) : (
+              <button className="control-button danger" onClick={handleNewSession} type="button">
+                New Session
+              </button>
+            )}
+          </section>
+
+          {systemExpanded ? (
+            <pre className="interview-system-prompt">{systemMessage || "No system prompt loaded for this session yet."}</pre>
           ) : null}
-          {error ? <p className="error-copy">{error}</p> : null}
-        </form>
+        </section>
+
+        <aside className="conversation-panel">
+          <div className="conversation-panel-tabs">
+            <button
+              className={`conversation-tab ${panelTab === "conversation" ? "is-active" : ""}`}
+              onClick={() => setPanelTab("conversation")}
+              type="button"
+            >
+              Conversation
+            </button>
+            <button
+              className={`conversation-tab ${panelTab === "transcript" ? "is-active" : ""}`}
+              onClick={() => setPanelTab("transcript")}
+              type="button"
+            >
+              Transcript
+            </button>
+          </div>
+
+          <div className="conversation-panel-body" data-testid="chat-stream" ref={chatStreamRef}>
+            {panelTab === "conversation" ? (
+              <>
+                {loading ? <p className="empty-copy">Loading session state...</p> : null}
+                {!loading && messages.length === 0 ? (
+                  <p className="empty-copy">
+                    Start with an introduction. The backend will use the uploaded JD and resume to steer the interview.
+                  </p>
+                ) : null}
+                {messages.map((message, index) => (
+                  <article key={`${message.type}-${index}`} className={`session-message ${message.type}`}>
+                    <span>{message.type === "human" ? user?.full_name || "Candidate" : "AudioBot"}</span>
+                    <div className={`session-bubble ${message.type}`}>
+                      <p>{message.content}</p>
+                    </div>
+                    <small>{formatClock(message.createdAt)}</small>
+                  </article>
+                ))}
+                {sending ? <div className="analysis-pill">AI is analyzing response...</div> : null}
+              </>
+            ) : (
+              <div className="transcript-panel">
+                <p className="transcript-label">Session Transcript</p>
+                <pre>{transcriptText || "Transcript will appear here as the conversation builds."}</pre>
+              </div>
+            )}
+          </div>
+
+          <form className="session-composer" onSubmit={handleSend}>
+            <div className="session-composer-input">
+              <textarea
+                disabled={interviewComplete}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    handleSend(event);
+                  }
+                }}
+                placeholder={interviewComplete ? "Interview complete. Start a new session to continue." : "Type your response or supplement..."}
+                readOnly={interviewComplete}
+                rows={3}
+                value={input}
+              />
+              <button className="composer-send" disabled={sending || socketState !== "open" || interviewComplete} type="submit">
+                Send
+              </button>
+            </div>
+            <div className="session-composer-footer">
+              <span>Candidate can type or speak responses.</span>
+              <code>{sessionId}</code>
+            </div>
+            {interviewComplete ? (
+              <div className="hint-copy" data-testid="interview-complete-state">
+                Interview complete{completionReason ? ` (${completionReason.replace("_", " ")})` : ""}.
+                {reportStatus ? ` Report status: ${reportStatus}.` : ""}
+                {candidateSummary ? ` Summary: ${candidateSummary}` : ""}
+                {candidateScores ? ` Communication ${candidateScores.communication}/10, Clarity ${candidateScores.clarity}/10.` : ""}
+              </div>
+            ) : null}
+            {error ? <p className="error-copy">{error}</p> : null}
+          </form>
+        </aside>
       </section>
     </main>
   );

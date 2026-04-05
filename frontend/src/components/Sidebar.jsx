@@ -25,6 +25,8 @@ export default function Sidebar({
   onNewSession,
   socketState,
 }) {
+  const recentCount = sessions.length;
+
   return (
     <aside className="sidebar-shell">
       <div className="sidebar-header">
@@ -48,6 +50,14 @@ export default function Sidebar({
           <div className="status-card">
             <span>Prompt</span>
             <strong>{systemMessage ? "Ready" : "Pending"}</strong>
+          </div>
+          <div className="status-card">
+            <span>Prompt Size</span>
+            <strong>{systemMessage ? `${systemMessage.length} chars` : "0 chars"}</strong>
+          </div>
+          <div className="status-card">
+            <span>Sessions</span>
+            <strong>{recentCount}</strong>
           </div>
         </div>
         <button className="secondary-button" onClick={onToggleSystem} type="button">

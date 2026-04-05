@@ -200,6 +200,35 @@ def _initialize_thread_state(session_id: str, new_values: dict):
         agent.invoke(initial_state, config=config)
 
 
+def _read_conversation_payload(conversation_id: str):
+    config = {"configurable": {"thread_id": conversation_id}}
+    checkpoint_tuple = agent.checkpointer.get_tuple(config)
+
+    if checkpoint_tuple and checkpoint_tuple.checkpoint:
+        channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+        conversation = channel_values.get("conversation", [])
+
+        serialized = []
+        for msg in conversation:
+            serialized.append({
+                "type": getattr(msg, "type", "unknown"),
+                "data": {"content": getattr(msg, "content", str(msg))},
+            })
+
+        return {
+            "conversation_id": conversation_id,
+            "messages": serialized,
+            "context": {
+                "jd_text": channel_values.get("jd_text"),
+                "resume_text": channel_values.get("resume_text"),
+            },
+            "candidate_report": channel_values.get("candidate_report"),
+            "candidate_report_pdf": channel_values.get("candidate_report_pdf"),
+        }
+
+    raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 # ============================================================
 # UPLOAD ENDPOINTS
 # ============================================================
@@ -283,35 +312,28 @@ def get_conversation(conversation_id: str):
     Returns the conversation history and document context from the checkpointer.
     """
     try:
-        config = {"configurable": {"thread_id": conversation_id}}
-        checkpoint_tuple = agent.checkpointer.get_tuple(config)
-
-        if checkpoint_tuple and checkpoint_tuple.checkpoint:
-            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-            conversation = channel_values.get("conversation", [])
-
-            serialized = []
-            for msg in conversation:
-                serialized.append({
-                    "type": getattr(msg, "type", "unknown"),
-                    "data": {"content": getattr(msg, "content", str(msg))},
-                })
-
-            return {
-                "conversation_id": conversation_id,
-                "messages": serialized,
-                "context": {
-                    "jd_text": channel_values.get("jd_text"),
-                    "resume_text": channel_values.get("resume_text"),
-                },
-                "candidate_report": channel_values.get("candidate_report"),
-                "candidate_report_pdf": channel_values.get("candidate_report_pdf"),
-            }
+        return _read_conversation_payload(conversation_id)
     except Exception as e:
         logger.error(f"Error reading checkpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Error reading checkpoint: {str(e)}")
 
-    raise HTTPException(status_code=404, detail="Conversation not found")
+
+@app.get("/api/v1/conversations/{conversation_id}")
+def get_authenticated_conversation(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the conversation history for authenticated session UIs so the frontend
+    can reconcile local optimistic state with LangGraph persistence.
+    """
+    try:
+        return _read_conversation_payload(conversation_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading checkpoint for {current_user.email}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading checkpoint: {str(e)}")
 
 
 @app.get("/api/v1/admin/conversations/{conversation_id}/report.pdf", dependencies=[Depends(require_recruiter)])
