@@ -102,18 +102,8 @@ def interview_evaluator_node(state: AgentState) -> AgentState:
 
 def ask_question_node(state: AgentState) -> AgentState:
     messages=[]
-    user_input = state.get("user_input", "")
-    # if state.get("question_count",0)==0:
-    #     system_template = SYSTEM_MESSAGE
-    #     jd_text = state.get("jd_text", "N/A")
-    #     resume_text = state.get("resume_text", "N/A")
-    #     formatted_message = system_template.format(jd_text=jd_text, resume_text=resume_text)
-    #     messages.append(SystemMessage(content=formatted_message))
-    #     state['system_message']=formatted_message
-        
-    # else:
+    user_input = state.get("user_input", "")     
     messages = state.get("conversation",[])
-    
     messages.append(HumanMessage(content=user_input))
     structured_llm = llm.with_structured_output(ResponseInterview)
     response = structured_llm.invoke(messages)

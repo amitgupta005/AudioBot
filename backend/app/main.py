@@ -24,6 +24,7 @@ from app.core.security import (
     require_admin
 )
 from app.core.database import get_db
+from app.schemas.user import UserRegister, UserLogin, UserResponse, TokenResponse
 from app.dependencies import agent
 from app.websocket import websocket_handler
 from app.config import APP_NAME, APP_VERSION, SYSTEM_MESSAGE
@@ -47,64 +48,6 @@ app.add_middleware(
 # ============================================================
 # AUTH ROUTES
 # ============================================================
-
-class UserRole(str, Enum):
-    ADMIN = "admin"
-    CANDIDATE = "candidate"
-    RECRUITER = "recruiter"
-
-class UserRegister(BaseModel):
-    email: EmailStr
-    password: str
-    full_name: str
-    company_name: Optional[str | None] = None
-    role: UserRole = UserRole.CANDIDATE
-
-    @field_validator("email", mode="before")
-    @classmethod
-    def normalize_email(cls, v: str) -> str:
-        return v.lower().strip()
-
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        # if len(v) < 8:
-        #     raise ValueError("Password must be at least 8 characters long")
-        if len(v.encode("utf-8")) > 72:
-            raise ValueError("Password must be 72 bytes or fewer for bcrypt compatibility")
-        return v
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-    @field_validator("email", mode="before")
-    @classmethod
-    def normalize_email(cls, v: str) -> str:
-        return v.lower().strip()
-
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        if len(v.encode("utf-8")) > 72:
-            raise ValueError("Password must be 72 bytes or fewer for bcrypt compatibility")
-        return v
-
-class UserResponse(BaseModel):
-    id: str  # Updated to str to match UUID
-    email: EmailStr
-    full_name: str
-    company_name: Optional[str | None] = None
-    role: str 
-    created_at: datetime
-    updated_at: datetime
-    model_config = {"from_attributes": True}
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    user: UserResponse
-
 
 @app.post("/api/v1/auth/register", status_code=status.HTTP_201_CREATED, response_model=TokenResponse)
 async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
