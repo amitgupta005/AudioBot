@@ -2,15 +2,65 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from fastapi import WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 from app.dependencies import agent, stt, tts
+
 from app.config import SYSTEM_MESSAGE
+from app.core.database import AsyncSessionLocal
+from app.models.candidates import Candidate
+from app.models.interviews import Interview
+from app.models.loading import INTERVIEW_FULL_GRAPH
+
 
 logger = logging.getLogger(__name__)
 
 
-def _session_channel_values(conversation_id: str) -> dict:
-    config = {"configurable": {"thread_id": conversation_id}}
+async def _ensure_interview_context(interview_id: str):
+    """
+    Ensures that the LangGraph checkpointer has the mandatory jd_text and resume_text.
+    If they are missing, we fetch them from the database once and seed the state.
+    """
+    config = {"configurable": {"thread_id": interview_id}}
+    
+    # Check if we already have context in the checkpointer
+    current_values = _session_channel_values(interview_id)
+    if current_values.get("jd_text") and current_values.get("resume_text"):
+        return current_values
+
+    logger.info(f"Injecting missing JD/Resume context from DB for interview {interview_id}")
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Interview).options(*INTERVIEW_FULL_GRAPH).where(Interview.id == interview_id)
+        )
+        interview = result.scalar_one_or_none()
+        
+        if not interview:
+            logger.error(f"Interview {interview_id} not found in database.")
+            return current_values
+
+        new_context = {
+            "jd_text": interview.job.raw_job_description,
+            "resume_text": interview.candidate.resume_text,
+        }
+        
+        # Persist to checkpointer
+        try:
+            agent.update_state(config, new_context)
+            logger.info(f"Successfully seeded checkpointer with context for {interview_id}")
+        except Exception as e:
+            # If update_state fails (e.g. thread doesn't exist), we can seed it via initial invoke
+            # though usually update_state works if the checkpointer is active.
+            logger.warning(f"agent.update_state failed, using fallback seeding: {e}")
+            agent.invoke({"system_message": SYSTEM_MESSAGE, **new_context}, config=config)
+
+    # Return refreshed values
+    return _session_channel_values(interview_id)
+
+
+def _session_channel_values(interview_id: str) -> dict:
+    config = {"configurable": {"thread_id": interview_id}}
     checkpointer = getattr(agent, "checkpointer", None)
     if checkpointer is None or not hasattr(checkpointer, "get_tuple"):
         return {}
@@ -20,7 +70,46 @@ def _session_channel_values(conversation_id: str) -> dict:
     return {}
 
 
-async def websocket_handler(websocket: WebSocket):
+def _serialize_conversation(conversation: list | None) -> list[dict]:
+    serialized: list[dict] = []
+    for message in conversation or []:
+        serialized.append({
+            "type": getattr(message, "type", "unknown"),
+            "content": getattr(message, "content", str(message)),
+        })
+    return serialized
+
+
+async def _mark_interview_completed(interview_id: str, result: dict):
+    async with AsyncSessionLocal() as db:
+        interview_result = await db.execute(
+            select(Interview).options(*INTERVIEW_FULL_GRAPH).where(Interview.id == interview_id)
+        )
+        interview = interview_result.scalar_one_or_none()
+        if not interview:
+            logger.warning(f"Interview {interview_id} not found while marking completion.")
+            return
+
+        interview.status = "completed"
+        interview.completed_at = datetime.now(timezone.utc)
+        if result.get("candidate_report"):
+            interview.report = result.get("candidate_report")
+            interview.summary = (result.get("candidate_report") or {}).get("summary")
+        if result.get("conversation"):
+            interview.transcript = _serialize_conversation(result.get("conversation"))
+
+        candidate_result = await db.execute(
+            select(Candidate).where(Candidate.id == interview.candidate_id)
+        )
+        candidate = candidate_result.scalar_one_or_none()
+        if candidate:
+            candidate.status = "completed"
+
+        await db.commit()
+        logger.info(f"Marked interview and candidate as completed for {interview_id}.")
+
+
+async def websocket_handler(websocket: WebSocket, interview_id: str):
     """
     WebSocket transport layer supporting both text and audio with persistent memory via LangGraph.
     """
@@ -44,17 +133,15 @@ async def websocket_handler(websocket: WebSocket):
                 break
 
             msg_type = data.get("type", "text")
-            conversation_id = data.get("conversation_id", "default-session")
             user_text = ""
-            channel_values = _session_channel_values(conversation_id)
+            # Ensure the AI has JD and Resume context before processing
+            channel_values = await _ensure_interview_context(interview_id)
 
             if channel_values.get("interview_complete"):
                 await websocket.send_text(json.dumps({
                     "error": "This interview has already ended. Start a new session to continue.",
                     "type": "interview_complete",
                     "interview_complete": True,
-                    "completion_reason": channel_values.get("completion_reason"),
-                    "report_status": channel_values.get("report_status"),
                     "report_download_url": channel_values.get("report_download_url"),
                 }))
                 continue
@@ -64,10 +151,10 @@ async def websocket_handler(websocket: WebSocket):
                 if not user_text:
                     await websocket.send_text(json.dumps({"error": "Empty message"}))
                     continue
-                logger.info(f"Received text message for conversation {conversation_id}")
+                logger.info(f"Received text message for interview {interview_id}")
 
             elif msg_type == "audio":
-                logger.info(f"Waiting for audio bytes for conversation {conversation_id}...")
+                logger.info(f"Waiting for audio bytes for interview {interview_id}...")
                 try:
                     audio_bytes = await websocket.receive_bytes()
                     user_text = stt.transcribe(audio_bytes)
@@ -88,14 +175,13 @@ async def websocket_handler(websocket: WebSocket):
 
             # Process with LangGraph Agent
             try:
-                persisted_state = _session_channel_values(conversation_id)
                 state = {
-                    **persisted_state,
+                    **channel_values,
                     "user_input": str(user_text),
-                    "system_message": persisted_state.get("system_message", SYSTEM_MESSAGE),
-                    "session_id": conversation_id,
+                    "system_message": channel_values.get("system_message", SYSTEM_MESSAGE),
+                    "session_id": interview_id,
                 }
-                config = {"configurable": {"thread_id": conversation_id}}
+                config = {"configurable": {"thread_id": interview_id}}
                 result = agent.invoke(state, config=config)
 
                 response_text = result.get("output", "I'm sorry, I couldn't process that.")
@@ -104,10 +190,14 @@ async def websocket_handler(websocket: WebSocket):
                     "text": response_text,
                     "type": "response",
                     "interview_complete": bool(result.get("interview_complete")),
-                    "completion_reason": result.get("completion_reason"),
-                    "report_status": result.get("report_status"),
                     "report_download_url": result.get("report_download_url"),
                 }))
+
+                if result.get("interview_complete"):
+                    try:
+                        await _mark_interview_completed(interview_id, result)
+                    except Exception as mark_error:
+                        logger.error(f"Failed to persist completion status for {interview_id}: {mark_error}")
 
                 if msg_type == "audio" and not result.get("interview_complete"):
                     logger.info("Synthesizing audio response...")

@@ -1,8 +1,8 @@
-"""create candidates and interviews tables
+"""initial schema
 
-Revision ID: 20260407_0004
-Revises: 20260406_0003
-Create Date: 2026-04-07 10:00:00
+Revision ID: 20260415_0001
+Revises:
+Create Date: 2026-04-15 14:20:00
 """
 
 from alembic import op
@@ -10,11 +10,19 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = "20260407_0004"
-down_revision = "20260406_0003"
+revision = "20260415_0001"
+down_revision = None
 branch_labels = None
 depends_on = None
 
+
+user_role = postgresql.ENUM(
+    "admin",
+    "candidate",
+    "recruiter",
+    name="user_role",
+    create_type=False,
+)
 
 candidate_status = postgresql.ENUM(
     "applied",
@@ -38,8 +46,42 @@ interview_status = postgresql.ENUM(
 
 def upgrade() -> None:
     bind = op.get_bind()
+    user_role.create(bind, checkfirst=True)
     candidate_status.create(bind, checkfirst=True)
     interview_status.create(bind, checkfirst=True)
+
+    op.create_table(
+        "users",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("email", sa.String(length=255), nullable=False),
+        sa.Column("password_hash", sa.String(length=255), nullable=False),
+        sa.Column("full_name", sa.String(length=255), nullable=False),
+        sa.Column("company_name", sa.String(length=255), nullable=True),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("role", user_role, nullable=False, server_default="candidate"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("email"),
+    )
+    op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
+
+    op.create_table(
+        "jobs",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("title", sa.String(length=255), nullable=False),
+        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("raw_job_description", sa.Text(), nullable=False),
+        sa.Column("structured_job_description", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("company_id", sa.String(), nullable=False),
+        sa.Column("company_name", sa.String(length=255), nullable=True),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["company_id"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_jobs_company_id"), "jobs", ["company_id"], unique=False)
 
     op.create_table(
         "candidates",
@@ -47,6 +89,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(), nullable=False),
         sa.Column("job_id", sa.String(), nullable=False),
         sa.Column("resume_text", sa.Text(), nullable=True),
+        sa.Column("structured_resume", sa.JSON(), nullable=True),
         sa.Column("status", candidate_status, nullable=False, server_default="applied"),
         sa.Column("score", sa.Float(), nullable=True),
         sa.Column("feedback", sa.Text(), nullable=True),
@@ -89,6 +132,13 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_candidates_job_id"), table_name="candidates")
     op.drop_table("candidates")
 
+    op.drop_index(op.f("ix_jobs_company_id"), table_name="jobs")
+    op.drop_table("jobs")
+
+    op.drop_index(op.f("ix_users_email"), table_name="users")
+    op.drop_table("users")
+
     bind = op.get_bind()
     interview_status.drop(bind, checkfirst=True)
     candidate_status.drop(bind, checkfirst=True)
+    user_role.drop(bind, checkfirst=True)

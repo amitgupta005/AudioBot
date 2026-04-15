@@ -1,69 +1,137 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthSession, getAuthUser } from "../lib/authStore";
-import { uploadPdf } from "../lib/api";
-import { startNewSession, touchSession } from "../lib/sessionStore";
+import { applyToJob, fetchCandidates, fetchInterviews, fetchJobs } from "../lib/api";
 
 function formatFileSize(size = 0) {
   if (size < 1024 * 1024) {
     return `${Math.max(1, Math.round(size / 1024))} KB`;
   }
-
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
 }
 
 export default function UploadPage() {
   const navigate = useNavigate();
   const user = getAuthUser();
-  const [sessionId] = useState(() => startNewSession());
+  const [jobs, setJobs] = useState([]);
+  const [interviews, setInterviews] = useState([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
   const [resumeFile, setResumeFile] = useState(null);
-  const [jdFile, setJdFile] = useState(null);
+  const [loadingJobs, setLoadingJobs] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
-  const readyCount = Number(Boolean(resumeFile)) + Number(Boolean(jdFile));
-  const progressLabel = readyCount === 2 ? "Interview context ready" : `${readyCount}/2 documents loaded`;
-  const sessionStateLabel = readyCount === 2 ? "Ready to launch" : "Preparing session";
-  const statusItems = [
-    {
-      label: "Session",
-      value: "Fresh thread created",
-      ready: true,
-    },
-    {
-      label: "Resume",
-      value: resumeFile ? "Attached" : "Waiting",
-      ready: Boolean(resumeFile),
-    },
-    {
-      label: "Job description",
-      value: jdFile ? "Attached" : "Waiting",
-      ready: Boolean(jdFile),
-    },
-  ];
 
-  async function handleSubmit(event) {
+  const selectedJob = useMemo(
+    () => jobs.find((job) => job.id === selectedJobId) || null,
+    [jobs, selectedJobId],
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPortalData() {
+      setLoadingJobs(true);
+      setError("");
+
+      try {
+        const [jobsResponse, interviewsResponse] = await Promise.all([
+          fetchJobs(),
+          fetchInterviews().catch(() => []),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setJobs(jobsResponse);
+        setSelectedJobId(jobsResponse[0]?.id || "");
+        setInterviews(interviewsResponse);
+      } catch (loadError) {
+        if (active) {
+          setError(loadError.message || "Unable to load candidate portal data.");
+        }
+      } finally {
+        if (active) {
+          setLoadingJobs(false);
+        }
+      }
+    }
+
+    loadPortalData();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const interviewByJob = useMemo(
+    () => interviews.filter((interview) => interview.job_id === selectedJobId),
+    [interviews, selectedJobId],
+  );
+
+  async function handleApply(event) {
     event.preventDefault();
-    if (!resumeFile || !jdFile) {
-      setError("Upload both the resume and the job description before continuing.");
+    if (!selectedJobId) {
+      setError("Select a job before applying.");
+      return;
+    }
+    if (!resumeFile) {
+      setError("Upload your resume PDF before applying.");
       return;
     }
 
     setSubmitting(true);
     setError("");
-    setStatus("Uploading resume...");
-
+    setStatus("Submitting application...");
     try {
-      await uploadPdf("resume", resumeFile, sessionId);
-      setStatus("Uploading job description...");
-      await uploadPdf("jd", jdFile, sessionId);
-      touchSession(sessionId);
-      navigate(`/chat/${sessionId}`);
-    } catch (uploadError) {
-      setError(uploadError.message || "Upload failed.");
+      const candidate = await applyToJob(selectedJobId, resumeFile);
+      setStatus("Application submitted. Checking interview availability...");
+
+      const [nextInterviews, candidateRows] = await Promise.all([
+        fetchInterviews().catch(() => []),
+        fetchCandidates().catch(() => []),
+      ]);
+      setInterviews(nextInterviews);
+
+      const matchingInterview = nextInterviews.find(
+        (row) => row.job_id === selectedJobId && row.candidate_id === candidate.id,
+      );
+
+      if (matchingInterview) {
+        navigate(`/chat/${matchingInterview.id}`);
+        return;
+      }
+
+      const latestCandidate = candidateRows.find((row) => row.id === candidate.id) || candidate;
+      setStatus(
+        `Application recorded (${latestCandidate.status}). A recruiter will schedule your interview soon.`,
+      );
+      setResumeFile(null);
+    } catch (applyError) {
+      setError(applyError.message || "Unable to apply for this job.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleJoinInterview(interviewId) {
+    navigate(`/chat/${interviewId}`);
   }
 
   function handleSignOut() {
@@ -81,7 +149,7 @@ export default function UploadPage() {
           </span>
         </div>
         <div className="candidate-header-actions">
-          {user?.role === "recruiter" || user?.role === "admin" ? (
+          {(user?.role === "recruiter" || user?.role === "admin") ? (
             <button className="secondary-button" onClick={() => navigate("/recruiter")} type="button">
               Recruiter View
             </button>
@@ -94,105 +162,93 @@ export default function UploadPage() {
 
       <section className="hero-panel">
         <div className="hero-copy candidate-workspace-copy">
-          <div className="candidate-workspace-intro">
-            <p className="eyebrow">Candidate Workspace</p>
-            <div className="candidate-session-pill">
-              <span className="candidate-session-dot" aria-hidden="true" />
-              <strong>{sessionStateLabel}</strong>
-            </div>
-          </div>
-          <h1>Build a clean interview packet before the session opens.</h1>
+          <p className="eyebrow">Candidate Portal</p>
+          <h1>Apply to a job and join your scheduled interview from one place.</h1>
           <p className="hero-text">
-            This page now starts a brand new thread every time you enter it. Add the resume and JD,
-            confirm both files look right, then move into the live interview with a fresh session id.
+            Choose an active job, upload your resume, and submit your application.
+            Once a recruiter schedules your interview, you can open it directly.
           </p>
 
-          <div className="candidate-workspace-grid">
-            <div className="context-meter candidate-context-meter">
-              <div className="context-meter-header">
-                <span>Launch Readiness</span>
-                <strong>{progressLabel}</strong>
-              </div>
-              <div aria-hidden="true" className="context-meter-track">
-                <span style={{ width: `${(readyCount / 2) * 100}%` }} />
-              </div>
-              <div className="context-checklist candidate-context-checklist">
-                {statusItems.map((item) => (
-                  <div key={item.label} className={`context-check candidate-context-check ${item.ready ? "is-ready" : ""}`}>
-                    <strong>{item.label}</strong>
-                    <span>{item.value}</span>
-                  </div>
+          <div className="recruiter-report-card">
+            <strong>Scheduled Interviews</strong>
+            {!interviewByJob.length ? (
+              <p>No interviews found for the selected job yet.</p>
+            ) : (
+              <div className="recruiter-session-list">
+                {interviewByJob.map((interview) => (
+                  <button
+                    key={interview.id}
+                    className="session-list-item"
+                    onClick={() => handleJoinInterview(interview.id)}
+                    type="button"
+                  >
+                    <span>{interview.id}</span>
+                    <small>
+                      {interview.status} • created {formatDate(interview.created_at)}
+                    </small>
+                  </button>
                 ))}
               </div>
-            </div>
-
-            <div className="hero-metadata candidate-session-card">
-              <span>Session thread</span>
-              <code data-testid="active-session-id">{sessionId}</code>
-              <small>A fresh thread is created whenever you land on this page.</small>
-            </div>
-          </div>
-
-          <div className="candidate-flow-card">
-            <div className="candidate-flow-step">
-              <span>1</span>
-              <div>
-                <strong>Attach your context</strong>
-                <p>Upload a PDF resume and the job description you want the interview aligned to.</p>
-              </div>
-            </div>
-            <div className="candidate-flow-step">
-              <span>2</span>
-              <div>
-                <strong>Open the interview</strong>
-                <p>The interview console will reuse this new thread and keep the session state together.</p>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
-        <form className="upload-card candidate-upload-card" onSubmit={handleSubmit}>
+        <form className="upload-card candidate-upload-card" onSubmit={handleApply}>
           <div className="candidate-upload-header">
             <div>
-              <p className="eyebrow">Session Assets</p>
-              <h2>Drop in the documents for this interview run.</h2>
-            </div>
-            <div className="candidate-upload-badge">
-              <strong>{readyCount}/2</strong>
-              <span>files ready</span>
+              <p className="eyebrow">Job Application</p>
+              <h2>Submit your resume for the selected job.</h2>
             </div>
           </div>
 
           <label className="upload-field candidate-upload-field">
-            <span>Candidate Resume (PDF)</span>
-            <input accept="application/pdf" onChange={(event) => setResumeFile(event.target.files?.[0] || null)} type="file" />
+            <span>Select Job</span>
+            <select
+              className="auth-field"
+              disabled={loadingJobs || submitting}
+              onChange={(event) => setSelectedJobId(event.target.value)}
+              value={selectedJobId}
+            >
+              {!jobs.length ? <option value="">No jobs available</option> : null}
+              {jobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.title} ({job.company_name || "Company"})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedJob ? (
+            <div className="recruiter-report-card">
+              <strong>{selectedJob.title}</strong>
+              <p>{selectedJob.description}</p>
+            </div>
+          ) : null}
+
+          <label className="upload-field candidate-upload-field">
+            <span>Resume (PDF)</span>
+            <input
+              accept="application/pdf"
+              onChange={(event) => setResumeFile(event.target.files?.[0] || null)}
+              type="file"
+            />
             <div className={`file-card candidate-file-card ${resumeFile ? "is-selected" : ""}`}>
               <strong>{resumeFile?.name || "No resume selected yet"}</strong>
               <span>{resumeFile ? formatFileSize(resumeFile.size) : "PDF only"}</span>
             </div>
           </label>
 
-          <label className="upload-field candidate-upload-field">
-            <span>Job Description (PDF)</span>
-            <input accept="application/pdf" onChange={(event) => setJdFile(event.target.files?.[0] || null)} type="file" />
-            <div className={`file-card candidate-file-card ${jdFile ? "is-selected" : ""}`}>
-              <strong>{jdFile?.name || "No job description selected yet"}</strong>
-              <span>{jdFile ? formatFileSize(jdFile.size) : "PDF only"}</span>
-            </div>
-          </label>
+          <button
+            className="primary-button candidate-launch-button"
+            disabled={submitting || loadingJobs || !selectedJobId}
+            type="submit"
+          >
+            {submitting ? status || "Submitting..." : "Apply For Job"}
+          </button>
 
-          <div className="candidate-upload-summary">
-            <div className="candidate-upload-summary-copy">
-              <strong>Ready for the interview console?</strong>
-              <p>The launch button activates once both PDFs are attached to this fresh session.</p>
-            </div>
-            <button className="primary-button candidate-launch-button" disabled={submitting} type="submit">
-              {submitting ? status || "Uploading..." : "Save Context And Open Interview"}
-            </button>
-          </div>
-
+          {loadingJobs ? <p className="status-copy">Loading jobs...</p> : null}
+          {!error && status && !submitting ? <p className="status-copy">{status}</p> : null}
           {error ? <p className="error-copy">{error}</p> : null}
-          {!error && status && submitting ? <p className="status-copy">{status}</p> : null}
         </form>
       </section>
     </main>

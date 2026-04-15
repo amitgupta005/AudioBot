@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -16,6 +17,7 @@ class CandidateCreate(BaseModel):
     user_id: str
     job_id: str
     resume_text: str | None = None
+    structured_resume: dict[str, Any] | None = None
     status: CandidateStatus = CandidateStatus.APPLIED
     score: float | None = None
     feedback: str | None = None
@@ -23,6 +25,7 @@ class CandidateCreate(BaseModel):
 
 class CandidateUpdate(BaseModel):
     resume_text: str | None = None
+    structured_resume: dict[str, Any] | None = None
     status: CandidateStatus | None = None
     score: float | None = None
     feedback: str | None = None
@@ -33,6 +36,7 @@ class CandidateResponse(BaseModel):
     user_id: str
     job_id: str
     resume_text: str | None
+    structured_resume: dict[str, Any] | None
     status: CandidateStatus
     score: float | None
     feedback: str | None

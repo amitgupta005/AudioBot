@@ -72,12 +72,25 @@ REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB
 APP_NAME = "AudioBot - Conversational AI"
 APP_VERSION = "0.2.0"
 
+# Environment
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+# CORS configuration (comma-separated env value)
+_cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000,http://localhost:5173")
+CORS_ALLOW_ORIGINS = [origin.strip() for origin in _cors_origins_raw.split(",") if origin.strip()]
+CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+
 # Database configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql+asyncpg://user:password@localhost:5432/audiobot"
 )
 # Security
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if ENVIRONMENT in {"development", "dev", "test"}:
+        SECRET_KEY = "dev-only-secret-key-change-me"
+    else:
+        raise RuntimeError("SECRET_KEY must be set for non-development environments")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))

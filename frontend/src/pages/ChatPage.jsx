@@ -5,8 +5,7 @@ import {
   buildConversationReportUrl,
   createChatSocket,
   downloadConversationReport,
-  fetchConversation,
-  fetchConversationIds,
+  fetchAuthenticatedConversation,
   resolveApiUrl,
 } from "../lib/api";
 import { listKnownSessions, startNewSession, touchSession } from "../lib/sessionStore";
@@ -85,8 +84,6 @@ function normalizeConversationPayload(conversation, sessionId) {
     messages: visibleMessages,
     systemMessage,
     interviewComplete: Boolean(report),
-    completionReason: "",
-    reportStatus: conversation.candidate_report_pdf ? "ready" : report ? "generated" : "",
     candidateSummary: report?.summary || "",
     candidateScores: report?.scores || null,
     reportDownloadUrl: resolveApiUrl(
@@ -99,7 +96,6 @@ export default function ChatPage() {
   const { sessionId = "" } = useParams();
   const navigate = useNavigate();
   const user = getAuthUser();
-  const isRecruiterView = user?.role === "recruiter" || user?.role === "admin";
   const socketRef = useRef(null);
   const sendLockRef = useRef(false);
   const recorderRef = useRef(null);
@@ -117,8 +113,6 @@ export default function ChatPage() {
   const [error, setError] = useState("");
   const [socketState, setSocketState] = useState("connecting");
   const [interviewComplete, setInterviewComplete] = useState(false);
-  const [completionReason, setCompletionReason] = useState("");
-  const [reportStatus, setReportStatus] = useState("");
   const [candidateSummary, setCandidateSummary] = useState("");
   const [candidateScores, setCandidateScores] = useState(null);
   const [reportDownloadUrl, setReportDownloadUrl] = useState("");
@@ -136,26 +130,8 @@ export default function ChatPage() {
       setLoading(true);
       setError("");
 
-      if (!isRecruiterView) {
-        setMessages([]);
-        setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
-        setSystemMessage("");
-        setInterviewComplete(false);
-        setCompletionReason("");
-        setReportStatus("");
-        setCandidateSummary("");
-        setCandidateScores(null);
-        setReportDownloadUrl("");
-        setActivityNote("Context loaded. Start with a short introduction to kick off the interview.");
-        setLoading(false);
-        return;
-      }
-
       try {
-        const [conversation, conversationIds] = await Promise.all([
-          fetchConversation(sessionId),
-          fetchConversationIds().catch(() => []),
-        ]);
+        const conversation = await fetchAuthenticatedConversation(sessionId);
 
         if (!active) {
           return;
@@ -165,8 +141,6 @@ export default function ChatPage() {
         setMessages(nextState.messages);
         setSystemMessage(nextState.systemMessage);
         setInterviewComplete(nextState.interviewComplete);
-        setCompletionReason(nextState.completionReason);
-        setReportStatus(nextState.reportStatus);
         setCandidateSummary(nextState.candidateSummary);
         setCandidateScores(nextState.candidateScores);
         setReportDownloadUrl(nextState.reportDownloadUrl);
@@ -177,7 +151,7 @@ export default function ChatPage() {
               ? "Session restored. You can continue from the latest question."
               : "Context loaded. Start with a short introduction to kick off the interview."
         );
-        setSessions(dedupeSessions(listKnownSessions(), conversationIds, sessionId));
+        setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
       } catch (loadError) {
         if (!active) {
           return;
@@ -187,13 +161,11 @@ export default function ChatPage() {
         setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
         setSystemMessage("");
         setInterviewComplete(false);
-        setCompletionReason("");
-        setReportStatus("");
         setCandidateSummary("");
         setCandidateScores(null);
         setReportDownloadUrl("");
-        setActivityNote("Upload the JD and resume to initialize this session.");
-        setError(loadError.message || "Could not load this session yet. Upload documents first.");
+        setActivityNote("Interview context not available yet. Join a scheduled interview from the candidate portal.");
+        setError(loadError.message || "Could not load this interview session yet.");
       } finally {
         if (active) {
           setLoading(false);
@@ -205,10 +177,10 @@ export default function ChatPage() {
     return () => {
       active = false;
     };
-  }, [isRecruiterView, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => {
-    const socket = createChatSocket();
+    const socket = createChatSocket(sessionId);
     socketRef.current = socket;
 
     socket.addEventListener("open", () => {
@@ -247,8 +219,6 @@ export default function ChatPage() {
           setActivityNote(payload.error);
           if (payload.interview_complete) {
             setInterviewComplete(true);
-            setCompletionReason(payload.completion_reason || "");
-            setReportStatus(payload.report_status || "");
             setReportDownloadUrl(resolveApiUrl(payload.report_download_url) || buildConversationReportUrl(sessionId));
           }
           return;
@@ -267,8 +237,6 @@ export default function ChatPage() {
           sendLockRef.current = false;
           setRecording(false);
           setInterviewComplete(Boolean(payload.interview_complete));
-          setCompletionReason(payload.completion_reason || "");
-          setReportStatus(payload.report_status || "");
           setReportDownloadUrl(resolveApiUrl(payload.report_download_url || ""));
           setActivityNote(
             payload.interview_complete
@@ -276,21 +244,17 @@ export default function ChatPage() {
               : "AudioBot responded. You're ready for the next turn."
           );
 
-          if (isRecruiterView) {
-            try {
-              const conversation = await fetchConversation(sessionId);
-              const nextState = normalizeConversationPayload(conversation, sessionId);
-              setMessages(nextState.messages);
-              setSystemMessage(nextState.systemMessage);
-              setInterviewComplete(nextState.interviewComplete);
-              setCompletionReason(nextState.completionReason);
-              setReportStatus(nextState.reportStatus);
-              setCandidateSummary(nextState.candidateSummary);
-              setCandidateScores(nextState.candidateScores);
-              setReportDownloadUrl(nextState.reportDownloadUrl);
-            } catch {
-              // Keep optimistic state if admin fetch is unavailable.
-            }
+          try {
+            const conversation = await fetchAuthenticatedConversation(sessionId);
+            const nextState = normalizeConversationPayload(conversation, sessionId);
+            setMessages(nextState.messages);
+            setSystemMessage(nextState.systemMessage);
+            setInterviewComplete(nextState.interviewComplete);
+            setCandidateSummary(nextState.candidateSummary);
+            setCandidateScores(nextState.candidateScores);
+            setReportDownloadUrl(nextState.reportDownloadUrl);
+          } catch {
+            // Keep optimistic state if fetch is unavailable.
           }
         }
       } catch {
@@ -304,7 +268,7 @@ export default function ChatPage() {
     return () => {
       socket.close();
     };
-  }, [isRecruiterView, sessionId]);
+  }, [sessionId]);
 
   useEffect(() => () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
@@ -342,7 +306,6 @@ export default function ChatPage() {
     socketRef.current.send(
       JSON.stringify({
         type: "text",
-        conversation_id: sessionId,
         message: trimmed,
       }),
     );
@@ -417,7 +380,7 @@ export default function ChatPage() {
           setSending(true);
           setRecording(false);
           setActivityNote("Uploading your voice answer for transcription.");
-          socketRef.current.send(JSON.stringify({ type: "audio", conversation_id: sessionId }));
+          socketRef.current.send(JSON.stringify({ type: "audio" }));
           socketRef.current.send(audioBlob);
         } catch {
           setError("Audio capture failed.");
@@ -457,7 +420,7 @@ export default function ChatPage() {
   }, [messages, panelTab]);
 
   const currentQuestion = [...messages].reverse().find((message) => message.type === "ai")?.content
-    || "Upload context and answer the first prompt when it appears.";
+    || "Start by introducing yourself when the interviewer prompt appears.";
   const recentSessionLabel = sessions[0]?.lastVisitedAt || sessions[0]?.createdAt;
   const transcriptText = messages
     .map((message) => `${message.type === "human" ? "Candidate" : "AudioBot"}: ${message.content}`)
@@ -571,7 +534,7 @@ export default function ChatPage() {
             <button className="control-button" onClick={() => setSystemExpanded((value) => !value)} type="button">
               {systemExpanded ? "Hide Prompt" : "View Prompt"}
             </button>
-            {interviewComplete && reportStatus === "ready" ? (
+            {interviewComplete && reportDownloadUrl ? (
               <button className="control-button emphasis" data-testid="download-report-link" onClick={handleDownloadReport} type="button">
                 Download Report
               </button>
@@ -611,7 +574,7 @@ export default function ChatPage() {
                 {loading ? <p className="empty-copy">Loading session state...</p> : null}
                 {!loading && messages.length === 0 ? (
                   <p className="empty-copy">
-                    Start with an introduction. The backend will use the uploaded JD and resume to steer the interview.
+                    Start with an introduction and respond naturally as the interview progresses.
                   </p>
                 ) : null}
                 {messages.map((message, index) => (
@@ -659,8 +622,7 @@ export default function ChatPage() {
             </div>
             {interviewComplete ? (
               <div className="hint-copy" data-testid="interview-complete-state">
-                Interview complete{completionReason ? ` (${completionReason.replace("_", " ")})` : ""}.
-                {reportStatus ? ` Report status: ${reportStatus}.` : ""}
+                Interview complete.
                 {candidateSummary ? ` Summary: ${candidateSummary}` : ""}
                 {candidateScores ? ` Communication ${candidateScores.communication}/10, Clarity ${candidateScores.clarity}/10.` : ""}
               </div>

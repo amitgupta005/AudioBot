@@ -170,7 +170,7 @@ def report_generator_node(state: AgentState,config) -> dict:
         recommendation=report.recommendation,
         transcript_lines=transcript_lines,
     )
-    report_download_url = f"/admin/conversations/{thread_id}/report.pdf"
+    report_download_url = f"/api/v1/interviews/{thread_id}/report.pdf"
 
     return {
         "candidate_report": report_payload,
