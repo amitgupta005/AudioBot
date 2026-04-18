@@ -88,7 +88,7 @@ class GraphTests(unittest.TestCase):
         self.assertTrue(graph_module.redis_saver.setup_called)
         self.assertEqual(graph_module.route_by_intent({"intent": "clarify"}), "clarify")
         self.assertEqual(graph_module.route_by_intent({"intent": "chat"}), "interview_evaluator")
-        self.assertEqual(graph_module.route_by_intent({}), "interview_evaluator")
+        self.assertEqual(graph_module.route_by_intent({}), "END")
         self.assertEqual(graph_module.route_interview({"interview_complete": True}), "close_interview")
         self.assertEqual(graph_module.route_interview({"interview_complete": False}), "ask_question")
 

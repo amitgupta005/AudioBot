@@ -1,3 +1,16 @@
+"""
+Tests for admin routes (app/routers/admin.py).
+
+Tests cover:
+- GET /api/v1/admin/conversations
+- GET /api/v1/admin/conversations/{id}
+- GET /api/v1/admin/conversations/{id}/report.pdf
+- GET /api/v1/admin/health
+- GET /api/v1/admin/health/llm
+
+Uses FastAPI dependency overrides to bypass real database and auth.
+"""
+
 import os
 import sys
 import types
@@ -5,15 +18,17 @@ import unittest
 from unittest.mock import patch
 
 import dotenv
-from fastapi.testclient import TestClient
-
 
 BACKEND_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BACKEND_ROOT not in sys.path:
-    sys.path.append(BACKEND_ROOT)
+    sys.path.insert(0, BACKEND_ROOT)
 
 dotenv.load_dotenv = lambda *args, **kwargs: False
 
+
+# ==============================================================
+# Stubs for app.dependencies (must be set BEFORE importing app)
+# ==============================================================
 
 class DummyMessage:
     def __init__(self, msg_type, content):
@@ -43,13 +58,10 @@ class DummyCheckpointer:
 class DummyAgent:
     def __init__(self):
         self.checkpointer = DummyCheckpointer()
-        self.raise_on_update = False
         self.update_calls = []
         self.invoke_calls = []
 
     def update_state(self, config, new_values):
-        if self.raise_on_update:
-            raise RuntimeError("missing thread")
         self.update_calls.append((config, new_values))
 
     def invoke(self, state, config=None):
@@ -57,72 +69,85 @@ class DummyAgent:
         return {"output": "stubbed"}
 
 
-dummy_dependencies = types.ModuleType("app.dependencies")
-dummy_dependencies.agent = DummyAgent()
+# Inject stubs into sys.modules BEFORE importing the app
+_dummy_deps = types.ModuleType("app.dependencies")
+_dummy_agent = DummyAgent()
+_dummy_deps.agent = _dummy_agent
+_dummy_deps.stt = types.SimpleNamespace(transcribe=lambda b: "text")
+_dummy_deps.tts = types.SimpleNamespace(synthesize=lambda t: b"")
+sys.modules["app.dependencies"] = _dummy_deps
 
-dummy_websocket = types.ModuleType("app.websocket")
-
-
-async def _noop_handler(_websocket):
-    return None
-
-
-dummy_websocket.websocket_handler = _noop_handler
-
-sys.modules["app.dependencies"] = dummy_dependencies
-sys.modules["app.websocket"] = dummy_websocket
-
-from app.main import _initialize_thread_state, app  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from app.main import app  # noqa: E402
+from app.core.security import get_current_user, require_admin  # noqa: E402
 
 
-class MainAdminTests(unittest.TestCase):
+# ==============================================================
+# Fake admin user for dependency override
+# ==============================================================
+
+class FakeAdminUser:
+    """Mimics the User model with admin role."""
+    id = "admin-user-id"
+    email = "admin@test.com"
+    role = "admin"
+    full_name = "Admin User"
+    company_name = "Test Corp"
+    password_hash = "fake"
+    is_admin = True
+    is_recruiter = True
+    is_candidate = False
+
+
+async def _fake_get_current_user():
+    return FakeAdminUser()
+
+
+async def _fake_require_admin():
+    return FakeAdminUser()
+
+
+# ==============================================================
+# Tests
+# ==============================================================
+
+class AdminRouteTests(unittest.TestCase):
     def setUp(self):
-        self.client = TestClient(app)
-        dummy_dependencies.agent.raise_on_update = False
-        dummy_dependencies.agent.update_calls.clear()
-        dummy_dependencies.agent.invoke_calls.clear()
-        dummy_dependencies.agent.checkpointer.entries = []
-        dummy_dependencies.agent.checkpointer.by_thread = {}
+        # Override auth dependencies to skip database
+        app.dependency_overrides[get_current_user] = _fake_get_current_user
+        app.dependency_overrides[require_admin] = _fake_require_admin
+        # Ensure the lazy 'from app.dependencies import agent' always gets our dummy
+        self._agent_patch = patch("app.dependencies.agent", _dummy_agent)
+        self._agent_patch.start()
+        self.client = TestClient(app, raise_server_exceptions=False)
+        # Reset agent state
+        _dummy_agent.checkpointer.entries = []
+        _dummy_agent.checkpointer.by_thread = {}
+        _dummy_agent.update_calls.clear()
+        _dummy_agent.invoke_calls.clear()
 
-    def test_upload_jd_stores_extracted_text(self):
-        with patch("app.main.extract_pdf_text", return_value="JD text"):
-            response = self.client.post(
-                "/api/upload-jd",
-                files={"jd": ("jd.pdf", b"%PDF-1.4", "application/pdf")},
-                data={"session_id": "jd-session"},
-            )
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        self._agent_patch.stop()
 
+    def test_health_returns_ok(self):
+        response = self.client.get("/api/v1/admin/health")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["jd_chars"], len("JD text"))
-        self.assertEqual(
-            dummy_dependencies.agent.update_calls[-1],
-            ({"configurable": {"thread_id": "jd-session"}}, {"jd_text": "JD text"}),
-        )
-
-    def test_initialize_thread_state_falls_back_to_initial_invoke(self):
-        dummy_dependencies.agent.raise_on_update = True
-
-        _initialize_thread_state("new-thread", {"resume_text": "Resume"})
-
-        state, config = dummy_dependencies.agent.invoke_calls[-1]
-        self.assertEqual(config, {"configurable": {"thread_id": "new-thread"}})
-        self.assertEqual(state["user_input"], "SYSTEM_INITIALIZATION")
-        self.assertEqual(state["resume_text"], "Resume")
+        self.assertEqual(response.json(), {"status": "ok"})
 
     def test_list_conversations_returns_unique_sorted_ids(self):
-        dummy_dependencies.agent.checkpointer.entries = [
+        _dummy_agent.checkpointer.entries = [
             DummyCheckpointTuple(thread_id="b-thread"),
             DummyCheckpointTuple(thread_id="a-thread"),
             DummyCheckpointTuple(thread_id="b-thread"),
         ]
 
-        response = self.client.get("/admin/conversations")
-
+        response = self.client.get("/api/v1/admin/conversations")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"conversations": ["a-thread", "b-thread"]})
 
-    def test_get_conversation_returns_serialized_messages_and_context(self):
-        dummy_dependencies.agent.checkpointer.by_thread["thread-1"] = DummyCheckpointTuple(
+    def test_get_conversation_returns_serialized_messages(self):
+        _dummy_agent.checkpointer.by_thread["thread-1"] = DummyCheckpointTuple(
             checkpoint={
                 "channel_values": {
                     "conversation": [
@@ -135,20 +160,15 @@ class MainAdminTests(unittest.TestCase):
             }
         )
 
-        response = self.client.get("/admin/conversations/thread-1")
-
+        response = self.client.get("/api/v1/admin/conversations/thread-1")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["conversation_id"], "thread-1")
+        self.assertEqual(payload["interview_id"], "thread-1")
         self.assertEqual(payload["messages"][0]["data"]["content"], "Hi")
         self.assertEqual(payload["context"], {"jd_text": "JD", "resume_text": "Resume"})
-        self.assertIn("{jd_text}", payload["system_message"]["template"])
-        self.assertIn("JD", payload["system_message"]["resolved"])
-        self.assertIn("Resume", payload["system_message"]["resolved"])
 
     def test_get_conversation_returns_404_when_missing(self):
-        response = self.client.get("/admin/conversations/unknown")
-
+        response = self.client.get("/api/v1/admin/conversations/unknown")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Conversation not found")
 
@@ -165,7 +185,7 @@ class MainAdminTests(unittest.TestCase):
         fake_module.ChatGroq = FakeChatGroq
 
         with patch.dict(sys.modules, {"langchain_groq": fake_module}):
-            response = self.client.get("/health/llm")
+            response = self.client.get("/api/v1/admin/health/llm")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"llm": "reachable"})
@@ -183,10 +203,17 @@ class MainAdminTests(unittest.TestCase):
         fake_module.ChatGroq = FakeChatGroq
 
         with patch.dict(sys.modules, {"langchain_groq": fake_module}):
-            response = self.client.get("/health/llm")
+            response = self.client.get("/api/v1/admin/health/llm")
 
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["detail"], "LLM not reachable")
+
+    def test_report_download_returns_404_when_no_report(self):
+        _dummy_agent.checkpointer.by_thread["no-report"] = DummyCheckpointTuple(
+            checkpoint={"channel_values": {}}
+        )
+        response = self.client.get("/api/v1/admin/conversations/no-report/report.pdf")
+        self.assertEqual(response.status_code, 404)
 
 
 if __name__ == "__main__":

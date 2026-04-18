@@ -1,0 +1,44 @@
+# ==========================
+# AudioBot Backend — .dockerignore
+# ==========================
+
+# Version control
+.git
+.gitignore
+
+# Virtual environments
+.venv
+venv
+env
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+*.egg
+
+# IDE / Editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Tests & dev tools
+tests/
+tmp/
+notebooks/
+cli_*.py
+generated_reports/
+
+# Build artifacts
+audiobot_backend.egg-info/
+
+# Environment files (secrets)
+app/.env
+.env
+.env.local
+
+# Documentation
+*.md
+LICENSE

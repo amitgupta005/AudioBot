@@ -1,18 +1,22 @@
-fastapi
+# Development dependencies — unpinned for flexibility.
+# For production, use requirements.lock (pinned versions).
+# Canonical dependency list lives in pyproject.toml [project.dependencies].
+
+fastapi[standard]
 uvicorn
 langgraph
 langchain-core
 langchain-openai
+langchain-groq
 python-dotenv
 websockets
 langchain
 langchain-community
 redis
-langchain-groq
+langgraph-checkpoint-redis
 faster-whisper
 edge-tts
-langgraph-checkpoint-redis
-fastapi[standard]
+pdfplumber
 pydantic
 email-validator
 python-multipart
@@ -23,8 +27,8 @@ psycopg2-binary
 python-jose
 passlib[bcrypt]
 bcrypt<5
-pdfplumber
 numpy
 sounddevice
 soundfile
 reportlab
+slowapi
