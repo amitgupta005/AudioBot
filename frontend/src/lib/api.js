@@ -108,7 +108,8 @@ export async function fetchJobs() {
     headers: createHeaders(),
   });
   await ensureOk(response);
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.items || [];
 }
 
 export async function createJob(payload) {
@@ -151,7 +152,8 @@ export async function fetchCandidates() {
     headers: createHeaders(),
   });
   await ensureOk(response);
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.items || [];
 }
 
 export async function fetchInterviews() {
@@ -159,7 +161,8 @@ export async function fetchInterviews() {
     headers: createHeaders(),
   });
   await ensureOk(response);
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.items || [];
 }
 
 export async function createInterview(payload) {
@@ -236,7 +239,8 @@ export async function fetchRecruiterJobs(companyId = "") {
     headers: createHeaders(),
   });
   await ensureOk(response);
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.items || [];
 }
 
 export async function fetchRecruiterJobCandidates(jobId, stage = "all") {
@@ -247,7 +251,8 @@ export async function fetchRecruiterJobCandidates(jobId, stage = "all") {
     },
   );
   await ensureOk(response);
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : data.items || [];
 }
 
 export async function fetchRecruiterInterviewConversation(interviewId) {
@@ -288,7 +293,9 @@ export function resolveApiUrl(url) {
 
 export function createChatSocket(interviewId) {
   const base = getWebSocketBaseUrl();
-  return new WebSocket(`${base}/api/v1/interviews/${encodeURIComponent(interviewId)}/stream`);
+  const token = getAuthToken();
+  const url = `${base}/api/v1/interviews/${encodeURIComponent(interviewId)}/stream`;
+  return new WebSocket(token ? `${url}?token=${encodeURIComponent(token)}` : url);
 }
 
 export { API_BASE_URL };
