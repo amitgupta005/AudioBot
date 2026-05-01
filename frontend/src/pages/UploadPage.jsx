@@ -174,7 +174,7 @@ export default function UploadPage() {
             {!interviewByJob.length ? (
               <p>No interviews found for the selected job yet.</p>
             ) : (
-              <div className="recruiter-session-list">
+              <div className="recruiter-session-list" style={{ maxHeight: "320px", overflowY: "auto", paddingRight: "6px" }}>
                 {interviewByJob.map((interview) => (
                   <button
                     key={interview.id}

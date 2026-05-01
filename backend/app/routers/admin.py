@@ -53,14 +53,27 @@ async def get_conversation(interview_id: str):
 @router.get("/conversations/{interview_id}/report.pdf", dependencies=[Depends(require_admin)])
 async def download_conversation_report(interview_id: str):
     from app.dependencies import agent
+    from app.reports.gcs import download_pdf_from_gcs
+    from fastapi.responses import Response
 
     report_pdf_path = await get_report_path_from_checkpointer(agent, interview_id)
-    if report_pdf_path and os.path.exists(report_pdf_path):
-        return FileResponse(
-            report_pdf_path,
-            media_type="application/pdf",
-            filename=f"{interview_id}-candidate-report.pdf",
-        )
+    if report_pdf_path:
+        if report_pdf_path.startswith("gcs:"):
+            blob_name = report_pdf_path[4:]
+            pdf_bytes = download_pdf_from_gcs(blob_name)
+            if pdf_bytes:
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={interview_id}-candidate-report.pdf"}
+                )
+            raise HTTPException(status_code=500, detail="Failed to fetch report from storage")
+        elif os.path.exists(report_pdf_path):
+            return FileResponse(
+                report_pdf_path,
+                media_type="application/pdf",
+                filename=f"{interview_id}-candidate-report.pdf",
+            )
     raise HTTPException(status_code=404, detail="Candidate report PDF not available")
 
 

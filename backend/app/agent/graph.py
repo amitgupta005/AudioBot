@@ -1,5 +1,6 @@
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.redis import RedisSaver
+# Legacy Redis checkpointer
+# from langgraph.checkpoint.redis import RedisSaver
 from app.agent.state import AgentState
 from app.agent.nodes import (
     ask_question_node,
@@ -9,10 +10,28 @@ from app.agent.nodes import (
     interview_evaluator_node,
     report_generator_node,
 )
-from app.config import REDIS_URL
+# Legacy Redis checkpointer
+# from app.config import REDIS_URL
+# redis_saver = RedisSaver(redis_url=REDIS_URL)
+# redis_saver.setup()
 
-redis_saver = RedisSaver(redis_url=REDIS_URL)
-redis_saver.setup()
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from app.config import DATABASE_URL
+
+connection_kwargs = {
+    "autocommit": True,
+    "prepare_threshold": 0,
+}
+
+# The pool connects asynchronously. We manage its lifecycle in main.py lifespan.
+pool = AsyncConnectionPool(
+    conninfo=DATABASE_URL,
+    max_size=20,
+    kwargs=connection_kwargs,
+    open=False,
+)
+
 
 
 def route_by_intent(state: AgentState) -> str:
@@ -68,4 +87,4 @@ def build_agent():
     graph.add_edge("report_generator", END)
     graph.add_edge("clarify", END)
 
-    return graph.compile(checkpointer=redis_saver)
+    return graph.compile()

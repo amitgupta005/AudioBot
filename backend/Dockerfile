@@ -38,8 +38,8 @@ COPY app /app/app
 # ---- Install the app package (for proper imports) ----
 RUN pip install --no-cache-dir --no-deps -e .
 
-# ---- Create reports directory ----
-RUN mkdir -p /app/generated_reports && chown -R appuser:appuser /app
+# ---- Adjust permissions ----
+RUN chown -R appuser:appuser /app
 
 # ---- Switch to non-root user ----
 USER appuser
@@ -48,7 +48,7 @@ EXPOSE 8000
 
 # ---- Health check ----
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/docs || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/docs || exit 1
 
 # ---- Entrypoint ----
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

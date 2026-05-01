@@ -12,10 +12,10 @@ python-dotenv
 websockets
 langchain
 langchain-community
-redis
-langgraph-checkpoint-redis
-faster-whisper
-edge-tts
+langgraph-checkpoint-postgres
+psycopg[binary,pool]
+google-cloud-speech
+google-cloud-texttospeech
 pdfplumber
 pydantic
 email-validator
@@ -32,3 +32,4 @@ sounddevice
 soundfile
 reportlab
 slowapi
+google-cloud-storage

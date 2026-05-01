@@ -3,7 +3,7 @@ from sqlalchemy.orm import DeclarativeBase
 from app.config import DATABASE_URL, ENVIRONMENT
 
 engine = create_async_engine(
-    DATABASE_URL,
+    DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL,
     echo=(ENVIRONMENT in {"development", "dev", "test"}),
     pool_pre_ping=True,
     pool_size=10,

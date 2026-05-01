@@ -56,17 +56,16 @@ INSTRUCTIONS
 STT_MODEL = "base"
 TTS_MODEL = "en-US-AvaNeural"
 
-# Report output configuration
+# Report output configuration (local fallback)
 REPORTS_DIR = os.getenv(
     "REPORTS_DIR",
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "generated_reports")),
 )
 
-# Redis configuration (env-driven)
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_URL = os.getenv("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+# GCP configuration
+GCP_REPORTS_BUCKET = os.getenv("GCP_REPORTS_BUCKET")
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID")
+
 
 # Application settings
 APP_NAME = "AudioBot - Conversational AI"
@@ -83,7 +82,7 @@ CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == 
 # Database configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://user:password@localhost:5432/audiobot"
+    "postgresql://user:password@localhost:5432/audiobot"
 )
 # Security
 SECRET_KEY = os.getenv("SECRET_KEY")

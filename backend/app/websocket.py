@@ -27,8 +27,7 @@ async def _ensure_interview_context(interview_id: str):
     config = {"configurable": {"thread_id": interview_id}}
 
     # Check if we already have context in the checkpointer
-    # (sync checkpointer call → run in thread pool)
-    current_values = await asyncio.to_thread(_session_channel_values, interview_id)
+    current_values = await _session_channel_values(interview_id)
     if current_values.get("jd_text") and current_values.get("resume_text"):
         return current_values
 
@@ -48,29 +47,28 @@ async def _ensure_interview_context(interview_id: str):
             "resume_text": interview.candidate.resume_text,
         }
 
-        # Persist to checkpointer (sync call → thread pool)
+        # Persist to checkpointer
         try:
-            await asyncio.to_thread(agent.update_state, config, new_context)
+            await agent.aupdate_state(config, new_context)
             logger.info("Successfully seeded checkpointer with context for %s", interview_id)
         except Exception as e:
-            logger.warning("agent.update_state failed, using fallback seeding: %s", e)
-            await asyncio.to_thread(
-                agent.invoke,
+            logger.warning("agent.aupdate_state failed, using fallback seeding: %s", e)
+            await agent.ainvoke(
                 {"system_message": SYSTEM_MESSAGE, **new_context},
                 config,
             )
 
     # Return refreshed values
-    return await asyncio.to_thread(_session_channel_values, interview_id)
+    return await _session_channel_values(interview_id)
 
 
-def _session_channel_values(interview_id: str) -> dict:
-    """Read channel values from the checkpointer. Sync — call via to_thread."""
+async def _session_channel_values(interview_id: str) -> dict:
+    """Read channel values from the checkpointer. Async for AsyncPostgresSaver."""
     config = {"configurable": {"thread_id": interview_id}}
     checkpointer = getattr(agent, "checkpointer", None)
-    if checkpointer is None or not hasattr(checkpointer, "get_tuple"):
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
         return {}
-    checkpoint_tuple = checkpointer.get_tuple(config)
+    checkpoint_tuple = await checkpointer.aget_tuple(config)
     if checkpoint_tuple and checkpoint_tuple.checkpoint:
         return checkpoint_tuple.checkpoint.get("channel_values", {})
     return {}
@@ -198,8 +196,8 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     "session_id": interview_id,
                 }
                 config = {"configurable": {"thread_id": interview_id}}
-                # agent.invoke() is a blocking LLM call (2-10s) → run in thread pool
-                result = await asyncio.to_thread(agent.invoke, state, config)
+                # agent.ainvoke() natively supports AsyncPostgresSaver
+                result = await agent.ainvoke(state, config)
 
                 response_text = result.get("output", "I'm sorry, I couldn't process that.")
                 await websocket.send_text(json.dumps({
@@ -216,7 +214,7 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     except Exception as mark_error:
                         logger.error("Failed to persist completion status for %s: %s", interview_id, mark_error)
 
-                if msg_type == "audio" and not result.get("interview_complete"):
+                if msg_type == "audio":
                     logger.info("Synthesizing audio response...")
                     audio_response = await tts.synthesize(response_text)
                     if audio_response:

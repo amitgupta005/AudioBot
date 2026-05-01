@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import json
 import logging
 import uuid
@@ -30,13 +31,13 @@ def _serialize_state(value):
     return value
 
 
-def _log_agent_state(config: dict, label: str) -> None:
+async def _log_agent_state(config: dict, label: str) -> None:
     checkpointer = getattr(agent, "checkpointer", None)
-    if checkpointer is None or not hasattr(checkpointer, "get_tuple"):
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
         logger.info("%s state unavailable: agent has no readable checkpointer", label)
         return
 
-    checkpoint_tuple = checkpointer.get_tuple(config)
+    checkpoint_tuple = await checkpointer.aget_tuple(config)
     if not checkpoint_tuple or not checkpoint_tuple.checkpoint:
         logger.info("%s state unavailable: no checkpoint found", label)
         return
@@ -147,7 +148,7 @@ Department of Commerce, Delhi School of Economics | corporate.relations@mhrod.in
 """
 
 
-def main() -> None:
+async def main_async() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args()
     config = {"configurable": {"thread_id": args.session_id}}
@@ -155,44 +156,59 @@ def main() -> None:
     print(f"Session: {args.session_id}")
     print("Type 'exit' or 'quit' to stop.\n")
 
-    while True:
-        try:
-            user_input = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nExiting.")
-            break
+    # In CLI chat, we need the database checkpointer to be initialized since we bypass FastAPI lifespan
+    from app.agent.graph import pool
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from app.dependencies import agent
 
-        if not user_input:
-            continue
-        if user_input.lower() in {"exit", "quit"}:
-            print("Exiting.")
-            break
+    await pool.open()
+    postgres_saver = AsyncPostgresSaver(pool)
+    await postgres_saver.setup()
+    agent.checkpointer = postgres_saver
 
-        try:
-            _log_agent_state(config, "Before invoke")
-            result = agent.invoke(
-                {
-                    "user_input": user_input,
-                    "system_message": SYSTEM_MESSAGE,
-                    "jd_text":jd_text,
-                    "resume_text":resume_text
-                },
-                config=config,
-            )
-            _log_agent_state(config, "After invoke")
-        except Exception as exc:
-            print(f"Error: {exc}")
-            continue
+    try:
+        while True:
+            try:
+                user_input = input("You: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nExiting.")
+                break
 
-        response_text = result.get("output", "I'm sorry, I couldn't process that.")
-        print(f"AI: {response_text}\n")
+            if not user_input:
+                continue
+            if user_input.lower() in {"exit", "quit"}:
+                print("Exiting.")
+                break
 
-        if result.get("interview_complete"):
-            report_download_url = result.get("report_download_url")
-            if report_download_url:
-                print(f"Report: {report_download_url}")
-            break
+            try:
+                await _log_agent_state(config, "Before invoke")
+                result = await agent.ainvoke(
+                    {
+                        "user_input": user_input,
+                        "system_message": SYSTEM_MESSAGE,
+                        "jd_text": jd_text,
+                        "resume_text": resume_text
+                    },
+                    config=config,
+                )
+                await _log_agent_state(config, "After invoke")
+            except Exception as exc:
+                print(f"Error: {exc}")
+                continue
 
+            response_text = result.get("output", "I'm sorry, I couldn't process that.")
+            print(f"AI: {response_text}\n")
+
+            if result.get("interview_complete"):
+                report_download_url = result.get("report_download_url")
+                if report_download_url:
+                    print(f"Report: {report_download_url}")
+                break
+    finally:
+        await pool.close()
+
+def main() -> None:
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
     main()

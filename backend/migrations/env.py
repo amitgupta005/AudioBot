@@ -16,8 +16,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Ensure the URL has asyncpg to use the correct driver during migrations
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+db_url = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://") if DATABASE_URL.startswith("postgresql://") else DATABASE_URL
+config.set_main_option("sqlalchemy.url", db_url)
 target_metadata = Base.metadata
 
 

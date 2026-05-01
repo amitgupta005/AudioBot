@@ -97,10 +97,14 @@ async def get_interview_or_404(db: AsyncSession, interview_id: str) -> Interview
 # Checkpointer Helpers
 # =====================================
 
-def _read_conversation_payload_sync(agent, interview_id: str):
-    """Sync helper — call via asyncio.to_thread."""
+async def read_conversation_payload(agent, interview_id: str):
     config = {"configurable": {"thread_id": interview_id}}
-    checkpoint_tuple = agent.checkpointer.get_tuple(config)
+    
+    checkpointer = getattr(agent, "checkpointer", None)
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    checkpoint_tuple = await checkpointer.aget_tuple(config)
 
     if checkpoint_tuple and checkpoint_tuple.checkpoint:
         channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
@@ -124,26 +128,18 @@ def _read_conversation_payload_sync(agent, interview_id: str):
             "candidate_report_pdf": channel_values.get("candidate_report_pdf"),
         }
 
-    return None
-
-
-async def read_conversation_payload(agent, interview_id: str):
-    """Async wrapper for the sync checkpointer read."""
-    payload = await asyncio.to_thread(_read_conversation_payload_sync, agent, interview_id)
-    if payload is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return payload
+    raise HTTPException(status_code=404, detail="Conversation not found")
 
 
 async def get_report_path_from_checkpointer(agent, interview_id: str) -> str | None:
-    """Read the PDF report path from the checkpointer (via thread pool)."""
-
-    def _get():
-        config = {"configurable": {"thread_id": interview_id}}
-        checkpoint_tuple = agent.checkpointer.get_tuple(config)
-        if checkpoint_tuple and checkpoint_tuple.checkpoint:
-            channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
-            return channel_values.get("candidate_report_pdf")
+    """Read the PDF report path from the checkpointer."""
+    config = {"configurable": {"thread_id": interview_id}}
+    checkpointer = getattr(agent, "checkpointer", None)
+    if checkpointer is None or not hasattr(checkpointer, "aget_tuple"):
         return None
-
-    return await asyncio.to_thread(_get)
+        
+    checkpoint_tuple = await checkpointer.aget_tuple(config)
+    if checkpoint_tuple and checkpoint_tuple.checkpoint:
+        channel_values = checkpoint_tuple.checkpoint.get("channel_values", {})
+        return channel_values.get("candidate_report_pdf")
+    return None

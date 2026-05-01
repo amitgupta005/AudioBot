@@ -5,10 +5,8 @@
 alembic==1.18.4
 asyncpg==0.31.0
 bcrypt==4.3.0
-edge-tts==7.2.8
 email-validator==2.3.0
 fastapi==0.135.3
-faster-whisper==1.2.1
 langchain==1.2.14
 langchain-community==0.4.1
 langchain-core==1.2.25
@@ -16,7 +14,7 @@ langchain-groq==1.1.2
 langchain-openai==1.1.12
 langgraph==1.1.4
 langgraph-checkpoint==4.0.1
-langgraph-checkpoint-redis==0.4.0
+langgraph-checkpoint-postgres
 numpy==2.4.4
 passlib==1.7.4
 pdfplumber==0.11.9
@@ -24,7 +22,7 @@ pydantic==2.12.5
 python-dotenv==1.2.2
 python-jose==3.5.0
 python-multipart==0.0.22
-redis==7.4.0
+psycopg[binary,pool]
 reportlab==4.4.10
 slowapi==0.1.9
 sounddevice==0.5.5
@@ -32,3 +30,6 @@ soundfile==0.13.1
 SQLAlchemy==2.0.48
 uvicorn==0.42.0
 websockets==16.0
+google-cloud-storage
+google-cloud-speech
+google-cloud-texttospeech

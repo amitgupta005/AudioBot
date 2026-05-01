@@ -1,49 +1,47 @@
 # backend/app/audio/stt.py
 
-import os
 import logging
-import tempfile
-from faster_whisper import WhisperModel
-from app.config import STT_MODEL
+from google.cloud import speech
 
 logger = logging.getLogger(__name__)
 
 
 class SpeechToText:
     """
-    Converts audio (wav bytes) to text.
+    Converts audio (wav bytes) to text using Google Cloud Speech-to-Text.
+    Authenticates automatically via Application Default Credentials.
     """
 
-    def __init__(self, model_size: str = STT_MODEL):
-        logger.info(f"Initializing Whisper model: {model_size}")
+    def __init__(self, language_code: str = "en-US"):
+        logger.info("Initializing Google Cloud Speech client...")
         try:
-            self.model = WhisperModel(
-                model_size,
-                device="cpu",
-                compute_type="int8",
-            )
-            logger.info("Whisper model initialized.")
+            self.client = speech.SpeechClient()
+            self.default_language = language_code
+            logger.info("Google Cloud Speech client initialized.")
         except Exception as e:
-            logger.error(f"Failed to initialize Whisper model: {e}")
+            logger.error(f"Failed to initialize Google Cloud Speech client: {e}")
             raise e
 
-    def transcribe(self, audio_bytes: bytes, language: str = "en") -> str:
-        logger.info(f"Starting transcription (language={language})...")
-        file_path = None
+    def transcribe(self, audio_bytes: bytes, language: str = None) -> str:
+        logger.info("Starting transcription via Google Cloud STT...")
         try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fp:
-                fp.write(audio_bytes)
-                fp.flush()
-                file_path = fp.name
+            audio = speech.RecognitionAudio(content=audio_bytes)
+            
+            # Since the frontend sends audio in different formats (WebM/Opus or WAV),
+            # we don't specify the encoding explicitly so Google can auto-detect it,
+            # or we specify default parameters. For best results with browser audio,
+            # we often use auto-detection or WEBM_OPUS if specifically sending webm.
+            # But the backend currently receives whatever the browser records.
+            # Google Cloud STT auto-detects encoding if left out, but sample rate helps.
+            config = speech.RecognitionConfig(
+                language_code=language or self.default_language,
+            )
 
-            segments, info = self.model.transcribe(file_path, language=language)
-            text = " ".join(segment.text for segment in segments)
-            logger.info(f"Transcription complete. Detected language: {info.language}")
+            response = self.client.recognize(config=config, audio=audio)
+            
+            text = " ".join(result.alternatives[0].transcript for result in response.results)
+            logger.info("Transcription complete.")
             return text.strip()
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             raise e
-        finally:
-            # Clean up the temp file to prevent leaks
-            if file_path and os.path.exists(file_path):
-                os.unlink(file_path)

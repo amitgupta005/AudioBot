@@ -43,6 +43,17 @@ async def lifespan(app: FastAPI):
     # --- Startup ---
     setup_logging()
     logger.info("Starting AudioBot backend…")
+
+    # Initialize Postgres Checkpointer pool and tables
+    from app.agent.graph import pool
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from app.dependencies import agent
+
+    await pool.open()
+    postgres_saver = AsyncPostgresSaver(pool)
+    await postgres_saver.setup()
+    agent.checkpointer = postgres_saver
+    logger.info("Postgres checkpointer initialized.")
     # Force the dependencies module to initialize agent, stt, tts.
     # They're singletons stored at module level in dependencies.py.
     from app.dependencies import agent, stt, tts  # noqa: F401
@@ -52,6 +63,8 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     logger.info("Shutting down AudioBot backend…")
+    from app.agent.graph import pool
+    await pool.close()
 
 
 # =====================================

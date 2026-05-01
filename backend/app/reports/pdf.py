@@ -1,8 +1,10 @@
 import os
 import re
+import io
 from textwrap import wrap
 
-from app.config import REPORTS_DIR
+from app.config import REPORTS_DIR, GCP_REPORTS_BUCKET
+from app.reports.gcs import upload_pdf_to_gcs
 
 
 def _safe_name(value: str) -> str:
@@ -35,11 +37,8 @@ def build_candidate_report_pdf(
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
 
-    os.makedirs(REPORTS_DIR, exist_ok=True)
-    filename = f"{_safe_name(session_id)}-candidate-report.pdf"
-    file_path = os.path.join(REPORTS_DIR, filename)
-
-    pdf = canvas.Canvas(file_path, pagesize=A4)
+    pdf_buffer = io.BytesIO()
+    pdf = canvas.Canvas(pdf_buffer, pagesize=A4)
     width, height = A4
     y = height - 50
 
@@ -106,4 +105,17 @@ def build_candidate_report_pdf(
             y -= 4
 
     pdf.save()
+    pdf_bytes = pdf_buffer.getvalue()
+
+    if GCP_REPORTS_BUCKET:
+        blob_name = upload_pdf_to_gcs(session_id, pdf_bytes)
+        if blob_name:
+            return f"gcs:{blob_name}"
+
+    # Fallback to local file system
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    filename = f"{_safe_name(session_id)}-candidate-report.pdf"
+    file_path = os.path.join(REPORTS_DIR, filename)
+    with open(file_path, "wb") as f:
+        f.write(pdf_bytes)
     return file_path
