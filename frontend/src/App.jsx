@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { isAllowedRole, readStoredSession } from "./lib/authStore";
 import AuthPage from "./pages/AuthPage";
+import LandingPage from "./pages/LandingPage";
 import ChatPage from "./pages/ChatPage";
 import RecruiterPortal from "./pages/RecruiterPortal";
 import UploadPage from "./pages/UploadPage";
@@ -30,7 +31,7 @@ function ProtectedRoute({ allowedRoles }) {
   const { token, user } = readStoredSession();
 
   if (!token || !user) {
-    return <Navigate replace state={{ from: location }} to="/" />;
+    return <Navigate replace state={{ from: location }} to="/auth" />;
   }
 
   if (!isAllowedRole(user, allowedRoles)) {
@@ -66,7 +67,8 @@ export default function App() {
       </button>
 
       <Routes>
-        <Route path="/" element={<AuthPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/auth" element={<AuthPage />} />
         <Route element={<ProtectedRoute allowedRoles={["candidate", "recruiter", "admin"]} />}>
           <Route path="/chat/:sessionId" element={<ChatPage />} />
         </Route>
