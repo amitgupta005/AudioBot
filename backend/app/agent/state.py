@@ -25,6 +25,12 @@ class AgentState(TypedDict):
     jd_text: Optional[str]
     resume_text: Optional[str]
 
+    # mock interview config
+    interview_type: Optional[str]
+    difficulty: Optional[str]
+    interview_mode: Optional[str]
+    code_submissions: Optional[List[dict]]
+
     # final response returned to client
     output: str
 

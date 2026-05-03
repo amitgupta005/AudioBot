@@ -23,6 +23,9 @@ class Interview(Base):
         default="scheduled",
         nullable=False,
     )
+    interview_mode: Mapped[str] = mapped_column(String(50), default="live", nullable=False)
+    interview_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(String(50), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     report: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     transcript: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)

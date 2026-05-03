@@ -33,6 +33,8 @@ def build_candidate_report_pdf(
     summary: str,
     recommendation: str,
     transcript_lines: list[str] | None = None,
+    interview_type: str = "N/A",
+    difficulty: str = "N/A",
 ) -> str:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -49,6 +51,10 @@ def build_candidate_report_pdf(
 
     pdf.setFont("Helvetica", 11)
     pdf.drawString(40, y, f"Session ID: {session_id}")
+    y -= 18
+    pdf.drawString(40, y, f"Interview Type: {interview_type.title()}")
+    y -= 18
+    pdf.drawString(40, y, f"Difficulty: {difficulty.title()}")
     y -= 18
     pdf.drawString(40, y, f"Recommendation: {recommendation.replace('_', ' ').title()}")
     y -= 18

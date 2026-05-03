@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { isAllowedRole, readStoredSession } from "./lib/authStore";
 import AuthPage from "./pages/AuthPage";
 import LandingPage from "./pages/LandingPage";
+import MockInterviewPage from "./pages/MockInterviewPage";
 import ChatPage from "./pages/ChatPage";
 import RecruiterPortal from "./pages/RecruiterPortal";
 import UploadPage from "./pages/UploadPage";
@@ -74,6 +75,7 @@ export default function App() {
         </Route>
         <Route element={<ProtectedRoute allowedRoles={["candidate", "recruiter", "admin"]} />}>
           <Route path="/candidate" element={<UploadPage />} />
+          <Route path="/mock-interview" element={<MockInterviewPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={["recruiter", "admin"]} />}>
           <Route path="/recruiter" element={<RecruiterPortal />} />

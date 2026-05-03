@@ -9,6 +9,7 @@ import {
   resolveApiUrl,
 } from "../lib/api";
 import { listKnownSessions, startNewSession, touchSession } from "../lib/sessionStore";
+import CodeEditor from "../components/CodeEditor";
 
 function dedupeSessions(localSessions, remoteIds, currentSessionId) {
   const map = new Map();
@@ -71,11 +72,17 @@ function dedupeTranscript(messages) {
 }
 
 function normalizeConversationPayload(conversation, sessionId) {
-  const transcript = (conversation.messages || []).map((message, index) => ({
-    type: message.type,
-    content: message.data?.content || "",
-    createdAt: message.data?.created_at || new Date(Date.now() - (conversation.messages.length - index) * 60000).toISOString(),
-  }));
+  const transcript = (conversation.messages || []).map((message, index) => {
+    let content = message.data?.content || "";
+    if (content.includes("[CODE_CHALLENGE]")) {
+      content = content.replace("[CODE_CHALLENGE]", "").trim();
+    }
+    return {
+      type: message.type,
+      content,
+      createdAt: message.data?.created_at || new Date(Date.now() - (conversation.messages.length - index) * 60000).toISOString(),
+    };
+  });
   const systemMessage = transcript.find((message) => message.type === "system")?.content || "";
   const visibleMessages = dedupeTranscript(transcript);
   const report = conversation.candidate_report || null;
@@ -232,7 +239,12 @@ export default function ChatPage() {
         }
 
         if (payload.type === "response") {
-          setMessages((current) => [...current, buildUiMessage("ai", payload.text)]);
+          let aiText = payload.text;
+          if (aiText.includes("[CODE_CHALLENGE]")) {
+            aiText = aiText.replace("[CODE_CHALLENGE]", "").trim();
+            setPanelTab("code");
+          }
+          setMessages((current) => [...current, buildUiMessage("ai", aiText)]);
           setSending(false);
           sendLockRef.current = false;
           setRecording(false);
@@ -307,6 +319,26 @@ export default function ChatPage() {
       JSON.stringify({
         type: "text",
         message: trimmed,
+      }),
+    );
+  }
+
+  function handleCodeSubmit(code, language) {
+    if (sendLockRef.current || sending || recording || interviewComplete || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    sendLockRef.current = true;
+    setError("");
+    setSending(true);
+    setActivityNote("Code submitted. AudioBot is reviewing your solution.");
+    setMessages((current) => [...current, buildUiMessage("human", `[Submitted ${language} code]` )]);
+    setPanelTab("conversation");
+    socketRef.current.send(
+      JSON.stringify({
+        type: "code_submit",
+        code,
+        language
       }),
     );
   }
@@ -566,9 +598,16 @@ export default function ChatPage() {
             >
               Transcript
             </button>
+            <button
+              className={`conversation-tab ${panelTab === "code" ? "is-active" : ""}`}
+              onClick={() => setPanelTab("code")}
+              type="button"
+            >
+              Code Editor
+            </button>
           </div>
 
-          <div className="conversation-panel-body" data-testid="chat-stream" ref={chatStreamRef}>
+          <div className="conversation-panel-body" data-testid="chat-stream" ref={chatStreamRef} style={{ padding: panelTab === "code" ? "0" : undefined }}>
             {panelTab === "conversation" ? (
               <>
                 {loading ? <p className="empty-copy">Loading session state...</p> : null}
@@ -588,11 +627,16 @@ export default function ChatPage() {
                 ))}
                 {sending ? <div className="analysis-pill">AI is analyzing response...</div> : null}
               </>
-            ) : (
+            ) : panelTab === "transcript" ? (
               <div className="transcript-panel">
                 <p className="transcript-label">Session Transcript</p>
                 <pre>{transcriptText || "Transcript will appear here as the conversation builds."}</pre>
               </div>
+            ) : (
+              <CodeEditor 
+                onSubmit={handleCodeSubmit}
+                disabled={interviewComplete || sending || socketState !== "open"}
+              />
             )}
           </div>
 

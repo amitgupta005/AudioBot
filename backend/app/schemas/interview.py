@@ -16,6 +16,9 @@ class InterviewCreate(BaseModel):
     candidate_id: str
     job_id: str
     status: InterviewStatus = InterviewStatus.SCHEDULED
+    interview_mode: str = "live"
+    interview_type: str | None = None
+    difficulty: str | None = None
     summary: str | None = None
     report: dict[str, Any] | None = None
     transcript: list[dict[str, Any]] | None = None
@@ -25,6 +28,9 @@ class InterviewCreate(BaseModel):
 
 class InterviewUpdate(BaseModel):
     status: InterviewStatus | None = None
+    interview_mode: str | None = None
+    interview_type: str | None = None
+    difficulty: str | None = None
     summary: str | None = None
     report: dict[str, Any] | None = None
     transcript: list[dict[str, Any]] | None = None
@@ -37,6 +43,9 @@ class InterviewResponse(BaseModel):
     candidate_id: str
     job_id: str
     status: InterviewStatus
+    interview_mode: str
+    interview_type: str | None
+    difficulty: str | None
     summary: str | None
     report: dict[str, Any] | None
     transcript: list[dict[str, Any]] | None

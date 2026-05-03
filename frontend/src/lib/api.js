@@ -147,6 +147,28 @@ export async function applyToJob(jobId, resumeFile) {
   return response.json();
 }
 
+export async function startMockInterview({ resumeFile, jdText, jdFile, interviewType, difficulty }) {
+  const formData = new FormData();
+  formData.append("resume", resumeFile);
+  formData.append("interview_type", interviewType);
+  formData.append("difficulty", difficulty);
+  
+  if (jdText) {
+    formData.append("jd_text", jdText);
+  } else if (jdFile) {
+    formData.append("jd_file", jdFile);
+  }
+
+  const response = await request(`${API_BASE_URL}/api/v1/mock-interviews/start`, {
+    method: "POST",
+    headers: createHeaders(),
+    body: formData,
+  });
+
+  await ensureOk(response);
+  return response.json();
+}
+
 export async function fetchCandidates() {
   const response = await request(`${API_BASE_URL}/api/v1/candidates`, {
     headers: createHeaders(),

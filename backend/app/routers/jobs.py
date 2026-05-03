@@ -70,6 +70,8 @@ async def list_jobs(
     base_query = select(Job).options(*JOB_FULL_GRAPH)
     if current_user.is_recruiter and not current_user.is_admin:
         base_query = base_query.where(Job.company_id == current_user.id)
+    elif current_user.is_candidate:
+        base_query = base_query.where(Job.is_active == True)
 
     count_query = select(func.count()).select_from(base_query.subquery())
     total = (await db.execute(count_query)).scalar_one()

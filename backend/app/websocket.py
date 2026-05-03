@@ -45,6 +45,10 @@ async def _ensure_interview_context(interview_id: str):
         new_context = {
             "jd_text": interview.job.raw_job_description,
             "resume_text": interview.candidate.resume_text,
+            "interview_type": interview.interview_type,
+            "difficulty": interview.difficulty,
+            "interview_mode": interview.interview_mode,
+            "code_submissions": []
         }
 
         # Persist to checkpointer
@@ -54,7 +58,15 @@ async def _ensure_interview_context(interview_id: str):
         except Exception as e:
             logger.warning("agent.aupdate_state failed, using fallback seeding: %s", e)
             await agent.ainvoke(
-                {"system_message": SYSTEM_MESSAGE, **new_context},
+                {
+                    "system_message": SYSTEM_MESSAGE, 
+                    "jd_text": new_context["jd_text"], 
+                    "resume_text": new_context["resume_text"],
+                    "interview_type": interview.interview_type,
+                    "difficulty": interview.difficulty,
+                    "interview_mode": interview.interview_mode,
+                    "code_submissions": []
+                },
                 config,
             )
 
@@ -183,6 +195,18 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     logger.error("STT Error: %s", e)
                     await websocket.send_text(json.dumps({"error": "Speech recognition failed"}))
                     continue
+            elif msg_type == "code_submit":
+                code_text = data.get("code", "")
+                language = data.get("language", "python")
+                logger.info("Received code submission for interview %s", interview_id)
+                code_submissions = channel_values.get("code_submissions", [])
+                code_submissions.append({
+                    "code": code_text,
+                    "language": language,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+                channel_values["code_submissions"] = code_submissions
+                user_text = f"I have submitted the following {language} code:\n```\n{code_text}\n```"
             else:
                 await websocket.send_text(json.dumps({"error": "Unsupported message type"}))
                 continue
@@ -214,9 +238,10 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     except Exception as mark_error:
                         logger.error("Failed to persist completion status for %s: %s", interview_id, mark_error)
 
-                if msg_type == "audio":
+                if msg_type in ["audio", "code_submit"]:
                     logger.info("Synthesizing audio response...")
-                    audio_response = await tts.synthesize(response_text)
+                    clean_response = response_text.replace("[CODE_CHALLENGE]", "").strip()
+                    audio_response = await tts.synthesize(clean_response)
                     if audio_response:
                         await websocket.send_bytes(audio_response)
 

@@ -57,6 +57,26 @@ pre {
   font-family: "Cascadia Code", "Consolas", monospace;
 }
 
+/* --- Custom Scrollbar --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--line);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted);
+}
+
+/* --- Base Layout --- */
 .theme-toggle {
   position: fixed;
   bottom: 20px;
@@ -789,7 +809,8 @@ pre {
   gap: 22px;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  padding-right: 8px; /* add some padding for the scrollbar so it doesn't overlap content */
 }
 
 .interviewer-stage-card {

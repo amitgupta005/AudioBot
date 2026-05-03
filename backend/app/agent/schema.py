@@ -35,9 +35,12 @@ class ResponseInterview(BaseModel):
             "Exactly one clear, concise, and relevant follow-up question for the candidate. "
             "The question must be based on the candidate's previous response, the conversation history, "
             "and the job description. "
-            "Do NOT ask multiple questions. "
             "Do NOT include explanations or commentary—only the question."
         )
+    )
+    is_coding_challenge: bool = Field(
+        default=False,
+        description="Set to true ONLY if the question requires the candidate to write code to solve an algorithm or system design problem."
     )
 
 

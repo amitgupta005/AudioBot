@@ -72,6 +72,7 @@ async def apply_for_job(
 async def list_candidates(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="Items per page"),
+    job_id: str | None = Query(None, description="Filter by Job ID"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -80,6 +81,9 @@ async def list_candidates(
         base_query = base_query.where(Candidate.user_id == current_user.id)
     elif current_user.is_recruiter and not current_user.is_admin:
         base_query = base_query.join(Job, Candidate.job_id == Job.id).where(Job.company_id == current_user.id)
+
+    if job_id:
+        base_query = base_query.where(Candidate.job_id == job_id)
 
     count_query = select(func.count()).select_from(base_query.subquery())
     total = (await db.execute(count_query)).scalar_one()

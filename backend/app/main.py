@@ -127,7 +127,7 @@ app.add_middleware(
 # Register Routers
 # =====================================
 
-from app.routers import auth, jobs, candidates, interviews, admin, recruiter, conversations  # noqa: E402
+from app.routers import auth, jobs, candidates, interviews, mock_interviews, admin, recruiter, conversations  # noqa: E402
 
 # Apply rate limits to auth routes (must be done at the app level, not router level)
 limiter.limit("10/minute")(auth.register)
@@ -138,6 +138,7 @@ app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(candidates.router)
 app.include_router(interviews.router)
+app.include_router(mock_interviews.router)
 app.include_router(conversations.router)
 app.include_router(recruiter.router)
 app.include_router(admin.router)

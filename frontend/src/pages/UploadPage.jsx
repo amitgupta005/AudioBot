@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthSession, getAuthUser } from "../lib/authStore";
 import { applyToJob, fetchCandidates, fetchInterviews, fetchJobs } from "../lib/api";
+import "./UploadPage.css";
 
 function formatFileSize(size = 0) {
   if (size < 1024 * 1024) {
@@ -140,117 +141,152 @@ export default function UploadPage() {
   }
 
   return (
-    <main className="page-shell">
-      <header className="candidate-header">
-        <div>
-          <p className="brand-mark">AudioBot Candidate</p>
-          <span className="brand-subtitle">
-            Signed in as {user?.full_name || user?.email || "candidate"}
-          </span>
+    <div className="upload-page-container">
+      <header className="upload-page-header">
+        <div className="upload-brand-container">
+          <div className="upload-brand">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "#8b5cf6" }}>
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="22"></line>
+            </svg>
+            AudioBot <span>Candidate</span>
+          </div>
+          <div className="upload-divider"></div>
+          <div className="upload-user-info">
+            Signed in as <strong>{user?.full_name || user?.email || "Candidate"}</strong>
+          </div>
         </div>
-        <div className="candidate-header-actions">
-          {(user?.role === "recruiter" || user?.role === "admin") ? (
-            <button className="secondary-button" onClick={() => navigate("/recruiter")} type="button">
+        <div style={{ display: "flex", gap: "12px" }}>
+          {(user?.role === "recruiter" || user?.role === "admin") && (
+            <button className="upload-signout-btn" onClick={() => navigate("/recruiter")} type="button">
               Recruiter View
             </button>
-          ) : null}
-          <button className="ghost-button" onClick={handleSignOut} type="button">
+          )}
+          <button className="upload-signout-btn" onClick={handleSignOut} type="button">
             Sign out
           </button>
         </div>
       </header>
 
-      <section className="hero-panel">
-        <div className="hero-copy candidate-workspace-copy">
-          <p className="eyebrow">Candidate Portal</p>
-          <h1>Apply to a job and join your scheduled interview from one place.</h1>
-          <p className="hero-text">
-            Choose an active job, upload your resume, and submit your application.
-            Once a recruiter schedules your interview, you can open it directly.
-          </p>
+      <main className="upload-main-content">
+        <div className="upload-left-col">
+          <h1>Master Your<br />Next Interview</h1>
+          
+          <div className="upload-practice-card">
+            <div className="upload-practice-content">
+              <div className="upload-practice-icon">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M32 16C24 16 18 22 18 30C18 34.4 20.8 38 24 39.5V44C24 46.2 25.8 48 28 48H36C38.2 48 40 46.2 40 44V39.5C43.2 38 46 34.4 46 30C46 22 40 16 32 16Z" stroke="url(#paint0_linear)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M32 20V44" stroke="url(#paint0_linear)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M24 28H40" stroke="url(#paint0_linear)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M24 36H40" stroke="url(#paint0_linear)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <defs>
+                    <linearGradient id="paint0_linear" x1="18" y1="16" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="#a78bfa" />
+                      <stop offset="1" stopColor="#60a5fa" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+              </div>
+              <div className="upload-practice-text">
+                <h3>Practice Mock Interview</h3>
+                <p>Upload your own JD and resume to practice in technical, behavioral, or HR rounds.</p>
+              </div>
+            </div>
+            <button className="upload-practice-btn" onClick={() => navigate("/mock-interview")} type="button">
+              Start Practice →
+            </button>
+          </div>
+        </div>
 
-          <div className="recruiter-report-card">
-            <strong>Scheduled Interviews</strong>
-            {!interviewByJob.length ? (
-              <p>No interviews found for the selected job yet.</p>
-            ) : (
-              <div className="recruiter-session-list" style={{ maxHeight: "320px", overflowY: "auto", paddingRight: "6px" }}>
+        <div className="upload-right-col">
+          <div className="upload-glass-panel">
+            <h2>Apply for Job</h2>
+            
+            <form className="upload-form-card" onSubmit={handleApply}>
+              <h4 className="upload-form-title">Job Application</h4>
+              
+              <div className="upload-form-group">
+                <label className="upload-form-label">Select Job</label>
+                <select
+                  className="upload-select"
+                  disabled={loadingJobs || submitting}
+                  onChange={(event) => setSelectedJobId(event.target.value)}
+                  value={selectedJobId}
+                >
+                  {!jobs.length ? <option value="">No jobs available</option> : null}
+                  {jobs.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {job.title} ({job.company_name || "Company"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="upload-form-group">
+                <label className="upload-form-label">Resume (PDF)</label>
+                <label className={`upload-dropzone ${resumeFile ? "has-file" : ""}`}>
+                  <input
+                    accept="application/pdf"
+                    onChange={(event) => setResumeFile(event.target.files?.[0] || null)}
+                    type="file"
+                  />
+                  <div className="upload-dropzone-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                  </div>
+                  {resumeFile ? (
+                    <p className="upload-dropzone-text">
+                      <strong>{resumeFile.name}</strong> ({formatFileSize(resumeFile.size)})
+                    </p>
+                  ) : (
+                    <p className="upload-dropzone-text">
+                      Drag and drop your resume here, or <span>browse</span>
+                    </p>
+                  )}
+                </label>
+              </div>
+
+              <button
+                className="upload-submit-btn"
+                disabled={submitting || loadingJobs || !selectedJobId}
+                type="submit"
+              >
+                {submitting ? status || "Submitting..." : "Submit Application"}
+              </button>
+
+              {loadingJobs ? <p style={{ fontSize: "0.85rem", color: "#5c6c84", marginTop: "12px", textAlign: "center" }}>Loading jobs...</p> : null}
+              {!error && status && !submitting ? <p style={{ fontSize: "0.85rem", color: "#10b981", marginTop: "12px", textAlign: "center" }}>{status}</p> : null}
+              {error ? <p style={{ fontSize: "0.85rem", color: "#ef4444", marginTop: "12px", textAlign: "center" }}>{error}</p> : null}
+            </form>
+
+            {interviewByJob.length > 0 && (
+              <div className="upload-scheduled-interviews">
+                <h3>Scheduled Interviews</h3>
                 {interviewByJob.map((interview) => (
-                  <button
+                  <div
                     key={interview.id}
-                    className="session-list-item"
+                    className="upload-session-item"
                     onClick={() => handleJoinInterview(interview.id)}
-                    type="button"
                   >
-                    <span>{interview.id}</span>
-                    <small>
-                      {interview.status} • created {formatDate(interview.created_at)}
-                    </small>
-                  </button>
+                    <div className="upload-session-item-info">
+                      <strong>Interview #{interview.id.slice(0, 6)}</strong>
+                      <small>{interview.status} • {formatDate(interview.created_at)}</small>
+                    </div>
+                    <span className="upload-session-item-action">Join →</span>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
-
-        <form className="upload-card candidate-upload-card" onSubmit={handleApply}>
-          <div className="candidate-upload-header">
-            <div>
-              <p className="eyebrow">Job Application</p>
-              <h2>Submit your resume for the selected job.</h2>
-            </div>
-          </div>
-
-          <label className="upload-field candidate-upload-field">
-            <span>Select Job</span>
-            <select
-              className="auth-field"
-              disabled={loadingJobs || submitting}
-              onChange={(event) => setSelectedJobId(event.target.value)}
-              value={selectedJobId}
-            >
-              {!jobs.length ? <option value="">No jobs available</option> : null}
-              {jobs.map((job) => (
-                <option key={job.id} value={job.id}>
-                  {job.title} ({job.company_name || "Company"})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedJob ? (
-            <div className="recruiter-report-card">
-              <strong>{selectedJob.title}</strong>
-              <p>{selectedJob.description}</p>
-            </div>
-          ) : null}
-
-          <label className="upload-field candidate-upload-field">
-            <span>Resume (PDF)</span>
-            <input
-              accept="application/pdf"
-              onChange={(event) => setResumeFile(event.target.files?.[0] || null)}
-              type="file"
-            />
-            <div className={`file-card candidate-file-card ${resumeFile ? "is-selected" : ""}`}>
-              <strong>{resumeFile?.name || "No resume selected yet"}</strong>
-              <span>{resumeFile ? formatFileSize(resumeFile.size) : "PDF only"}</span>
-            </div>
-          </label>
-
-          <button
-            className="primary-button candidate-launch-button"
-            disabled={submitting || loadingJobs || !selectedJobId}
-            type="submit"
-          >
-            {submitting ? status || "Submitting..." : "Apply For Job"}
-          </button>
-
-          {loadingJobs ? <p className="status-copy">Loading jobs...</p> : null}
-          {!error && status && !submitting ? <p className="status-copy">{status}</p> : null}
-          {error ? <p className="error-copy">{error}</p> : null}
-        </form>
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
