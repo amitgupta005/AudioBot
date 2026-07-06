@@ -7,7 +7,7 @@ uvicorn
 langgraph
 langchain-core
 langchain-openai
-langchain-groq
+langchain-google-vertexai
 python-dotenv
 websockets
 langchain
@@ -23,7 +23,6 @@ python-multipart
 SQLAlchemy
 alembic
 asyncpg
-psycopg2-binary
 python-jose
 passlib[bcrypt]
 bcrypt<5

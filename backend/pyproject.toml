@@ -13,7 +13,7 @@ dependencies = [
     "langgraph",
     "langchain-core",
     "langchain-openai",
-    "langchain-groq",
+    "langchain-google-vertexai",
     "python-dotenv",
     "websockets",
     "langchain",

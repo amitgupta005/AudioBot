@@ -1,6 +1,7 @@
 import os
 import re
 import io
+from datetime import datetime
 from textwrap import wrap
 
 from app.config import REPORTS_DIR, GCP_REPORTS_BUCKET
@@ -27,6 +28,21 @@ def _write_wrapped_text(pdf, text: str, x: int, y: int, width: int = 95, step: i
     return y
 
 
+def _duration_label(started_at: str | None, completed_at: str | None) -> str | None:
+    if not started_at or not completed_at:
+        return None
+    try:
+        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    total_seconds = max(0, int((end - start).total_seconds()))
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
 def build_candidate_report_pdf(
     session_id: str,
     report: dict,
@@ -35,6 +51,14 @@ def build_candidate_report_pdf(
     transcript_lines: list[str] | None = None,
     interview_type: str = "N/A",
     difficulty: str = "N/A",
+    completion_status: str = "completed",
+    generated_at: str | None = None,
+    started_at: str | None = None,
+    completed_at: str | None = None,
+    question_count: int | None = None,
+    answered_count: int | None = None,
+    refused_count: int | None = None,
+    data_confidence_warning: str | None = None,
 ) -> str:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -56,10 +80,43 @@ def build_candidate_report_pdf(
     y -= 18
     pdf.drawString(40, y, f"Difficulty: {difficulty.title()}")
     y -= 18
+    pdf.drawString(40, y, f"Completion Status: {completion_status.replace('_', ' ').title()}")
+    y -= 18
+    if generated_at:
+        pdf.drawString(40, y, f"Report Generated: {generated_at}")
+        y -= 18
+    if started_at:
+        pdf.drawString(40, y, f"Interview Started: {started_at}")
+        y -= 18
+    if completed_at:
+        pdf.drawString(40, y, f"Interview Completed: {completed_at}")
+        y -= 18
+    duration = _duration_label(started_at, completed_at)
+    if duration:
+        pdf.drawString(40, y, f"Interview Duration: {duration}")
+        y -= 18
+    if question_count is not None:
+        pdf.drawString(40, y, f"Questions Asked: {question_count}")
+        y -= 18
+    if answered_count is not None:
+        pdf.drawString(40, y, f"Substantive Answers: {answered_count}")
+        y -= 18
+    if refused_count is not None:
+        pdf.drawString(40, y, f"Refused / Pushback Estimate: {refused_count}")
+        y -= 18
     pdf.drawString(40, y, f"Recommendation: {recommendation.replace('_', ' ').title()}")
     y -= 18
     pdf.drawString(40, y, f"Overall Score: {report.get('overall_score', 'N/A')}/10")
     y -= 28
+
+    if data_confidence_warning:
+        y = _ensure_space(pdf, y)
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(40, y, "Data Confidence")
+        y -= 18
+        pdf.setFont("Helvetica", 11)
+        y = _write_wrapped_text(pdf, data_confidence_warning, 50, y)
+        y -= 12
 
     pdf.setFont("Helvetica-Bold", 13)
     pdf.drawString(40, y, "Metric Scores")
@@ -77,6 +134,16 @@ def build_candidate_report_pdf(
     y -= 18
     pdf.setFont("Helvetica", 11)
     y = _write_wrapped_text(pdf, summary, 50, y)
+
+    recommendation_rationale = report.get("recommendation_rationale")
+    if recommendation_rationale:
+        y -= 12
+        y = _ensure_space(pdf, y)
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(40, y, "Recommendation Rationale")
+        y -= 18
+        pdf.setFont("Helvetica", 11)
+        y = _write_wrapped_text(pdf, recommendation_rationale, 50, y)
 
     y -= 12
     y = _ensure_space(pdf, y)
@@ -97,6 +164,16 @@ def build_candidate_report_pdf(
     for concern in report.get("concerns") or []:
         y = _write_wrapped_text(pdf, f"- {concern}", 50, y)
         y -= 2
+
+    candidate_feedback = report.get("candidate_feedback")
+    if candidate_feedback:
+        y -= 12
+        y = _ensure_space(pdf, y)
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(40, y, "Candidate-Facing Feedback")
+        y -= 18
+        pdf.setFont("Helvetica", 11)
+        y = _write_wrapped_text(pdf, candidate_feedback, 50, y)
 
     transcript_lines = transcript_lines or []
     if transcript_lines:

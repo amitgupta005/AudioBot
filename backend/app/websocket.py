@@ -89,8 +89,18 @@ async def _session_channel_values(interview_id: str) -> dict:
 def _serialize_conversation(conversation: list | None) -> list[dict]:
     serialized: list[dict] = []
     for message in conversation or []:
+        message_type = getattr(message, "type", "unknown")
+        if message_type == "human":
+            speaker = "Candidate"
+        elif message_type == "ai":
+            speaker = "Interviewer"
+        elif message_type == "system":
+            speaker = "System"
+        else:
+            speaker = message_type.title()
         serialized.append({
-            "type": getattr(message, "type", "unknown"),
+            "type": message_type,
+            "speaker": speaker,
             "content": getattr(message, "content", str(message)),
         })
     return serialized
@@ -191,14 +201,25 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                         "text": user_text,
                         "type": "transcription"
                     }))
+                except ValueError as ve:
+                    logger.warning("STT Validation Error: %s", ve)
+                    await websocket.send_text(json.dumps({"error": str(ve)}))
+                    continue
                 except Exception as e:
                     logger.error("STT Error: %s", e)
                     await websocket.send_text(json.dumps({"error": "Speech recognition failed"}))
                     continue
             elif msg_type == "code_submit":
-                code_text = data.get("code", "")
+                code_text = (data.get("code", "") or "").strip()
                 language = data.get("language", "python")
-                logger.info("Received code submission for interview %s", interview_id)
+                MAX_CODE_SIZE = 10_000  # 10KB
+                if not code_text:
+                    await websocket.send_text(json.dumps({"error": "Empty code submission. Please write some code before submitting."}))
+                    continue
+                if len(code_text) > MAX_CODE_SIZE:
+                    await websocket.send_text(json.dumps({"error": f"Code too large ({len(code_text):,} chars). Maximum is {MAX_CODE_SIZE:,} characters."}))
+                    continue
+                logger.info("Received code submission for interview %s (%s, %d chars)", interview_id, language, len(code_text))
                 code_submissions = channel_values.get("code_submissions", [])
                 code_submissions.append({
                     "code": code_text,
@@ -206,7 +227,7 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
                 channel_values["code_submissions"] = code_submissions
-                user_text = f"I have submitted the following {language} code:\n```\n{code_text}\n```"
+                user_text = f"I have submitted the following {language} code:\n```{language}\n{code_text}\n```"
             else:
                 await websocket.send_text(json.dumps({"error": "Unsupported message type"}))
                 continue
@@ -218,6 +239,7 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     "user_input": str(user_text),
                     "system_message": channel_values.get("system_message", SYSTEM_MESSAGE),
                     "session_id": interview_id,
+                    "interview_started_at": channel_values.get("interview_started_at") or datetime.now(timezone.utc).isoformat(),
                 }
                 config = {"configurable": {"thread_id": interview_id}}
                 # agent.ainvoke() natively supports AsyncPostgresSaver
@@ -229,6 +251,7 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     "text": response_text,
                     "type": "response",
                     "interview_complete": bool(result.get("interview_complete")),
+                    "completion_status": result.get("completion_status"),
                     "report_download_url": result.get("report_download_url"),
                 }))
 
@@ -238,9 +261,12 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                     except Exception as mark_error:
                         logger.error("Failed to persist completion status for %s: %s", interview_id, mark_error)
 
-                if msg_type in ["audio", "code_submit"]:
+                if msg_type == "audio":
                     logger.info("Synthesizing audio response...")
-                    clean_response = response_text.replace("[CODE_CHALLENGE]", "").strip()
+                    if "[CODE_CHALLENGE]" in response_text:
+                        clean_response = "Here is a coding question. Please write your solution in the code editor."
+                    else:
+                        clean_response = response_text.replace("[CODE_CHALLENGE]", "").strip()
                     audio_response = await tts.synthesize(clean_response)
                     if audio_response:
                         await websocket.send_bytes(audio_response)

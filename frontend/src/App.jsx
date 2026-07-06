@@ -73,9 +73,9 @@ export default function App() {
         <Route element={<ProtectedRoute allowedRoles={["candidate", "recruiter", "admin"]} />}>
           <Route path="/chat/:sessionId" element={<ChatPage />} />
         </Route>
+        <Route path="/mock-interview" element={<MockInterviewPage />} />
         <Route element={<ProtectedRoute allowedRoles={["candidate", "recruiter", "admin"]} />}>
           <Route path="/candidate" element={<UploadPage />} />
-          <Route path="/mock-interview" element={<MockInterviewPage />} />
         </Route>
         <Route element={<ProtectedRoute allowedRoles={["recruiter", "admin"]} />}>
           <Route path="/recruiter" element={<RecruiterPortal />} />

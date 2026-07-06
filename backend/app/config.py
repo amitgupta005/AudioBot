@@ -10,7 +10,11 @@ load_dotenv(dotenv_path=os.path.join(BACKEND_DIR, ".env"))
 # load_dotenv(dotenv_path=os.path.join(APP_DIR, ".env"))
 
 # LLM configuration
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+VERTEX_AI_PROJECT = os.getenv("VERTEX_AI_PROJECT", "audio-493721")
+VERTEX_AI_LOCATION = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+VERTEX_AI_MODEL_CHAT = os.getenv("VERTEX_AI_MODEL_CHAT", "gemini-2.5-flash")
+VERTEX_AI_MODEL_REASONING = os.getenv("VERTEX_AI_MODEL_REASONING", "gemini-2.5-flash")
+MOCK_INTERVIEW_COMPANY_NAME = os.getenv("MOCK_INTERVIEW_COMPANY_NAME", "Noventra Practice Lab")
 
 
 # ============================================================
@@ -54,6 +58,8 @@ INSTRUCTIONS
 5. If answers are vague or incomplete, ask clarifying follow-up questions.
 6. Maintain a professional and neutral tone.
 7. Do NOT provide feedback, evaluation, or judgment during the interview.
+8. If the candidate challenges relevance, refuses a topic, or asks to move on, do not immediately surrender control. Briefly explain the role relevance and ask 2-3 concise recovery follow-ups before concluding that the area cannot be assessed.
+9. If the candidate explicitly asks to stop, exit, or end the interview, acknowledge it and conclude without asking further questions.
 """
 
 SYSTEM_MESSAGE_BEHAVIORAL = """
@@ -81,6 +87,8 @@ INSTRUCTIONS
 4. Ensure the candidate follows the STAR framework. If they don't, prompt them for missing pieces (e.g. "What was the specific result?").
 5. Assess leadership, conflict resolution, problem-solving under pressure, and teamwork.
 6. Maintain a professional tone. Do NOT provide feedback during the interview.
+7. If the candidate challenges relevance, refuses a topic, or asks to move on, briefly explain why the behavioral evidence matters and ask 2-3 concise recovery follow-ups before concluding that the area cannot be assessed.
+8. If the candidate explicitly asks to stop, exit, or end the interview, acknowledge it and conclude without asking further questions.
 """
 
 SYSTEM_MESSAGE_TECHNICAL = """
@@ -109,6 +117,8 @@ INSTRUCTIONS
 6. Do NOT write the code for them.
 7. Wait for their response and evaluate it.
 8. Maintain a professional tone. Do NOT provide immediate feedback unless they are stuck and need a hint.
+9. If the candidate challenges relevance, refuses a topic, or asks to move on, briefly explain the technical relevance and ask 2-3 concise recovery follow-ups before concluding that the area cannot be assessed.
+10. If the candidate explicitly asks to stop, exit, or end the interview, acknowledge it and conclude without asking further questions.
 """
 
 # Alias for existing code assuming SYSTEM_MESSAGE means HR

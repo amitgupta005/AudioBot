@@ -67,7 +67,9 @@ class FakeLlm:
             "IntentResponse": types.SimpleNamespace(intent="chat"),
             "InterviewDecision": types.SimpleNamespace(
                 is_satisfied=False,
+                completion_status="in_progress",
                 satisfaction_reason="in_progress",
+                termination_reason=None,
             ),
             "ResponseInterview": types.SimpleNamespace(
                 acknowledgement="Noted.",
@@ -86,6 +88,8 @@ class FakeLlm:
                 concerns=["Needs deeper examples"],
                 summary="Good fit overall.",
                 recommendation="yes",
+                recommendation_rationale="Recommended based on the completed interview.",
+                candidate_feedback="Continue to provide specific examples.",
                 model_dump=lambda: {
                     "overall_score": 8,
                     "scores": {
@@ -97,6 +101,8 @@ class FakeLlm:
                     "concerns": ["Needs deeper examples"],
                     "summary": "Good fit overall.",
                     "recommendation": "yes",
+                    "recommendation_rationale": "Recommended based on the completed interview.",
+                    "candidate_feedback": "Continue to provide specific examples.",
                 },
             ),
         }
@@ -110,9 +116,9 @@ class FakeLlm:
         return AIMessage("Model response")
 
 
-fake_langchain_groq = types.ModuleType("langchain_groq")
-fake_langchain_groq.ChatGroq = lambda **kwargs: FakeLlm()
-sys.modules["langchain_groq"] = fake_langchain_groq
+fake_langchain_google_vertexai = types.ModuleType("langchain_google_vertexai")
+fake_langchain_google_vertexai.ChatVertexAI = lambda **kwargs: FakeLlm()
+sys.modules["langchain_google_vertexai"] = fake_langchain_google_vertexai
 
 from app.agent import nodes  # noqa: E402
 from app.agent.schema import InterviewDecision  # noqa: E402
@@ -120,11 +126,11 @@ from app.agent.schema import InterviewDecision  # noqa: E402
 
 class TestIntentClassifierNode(unittest.TestCase):
     def setUp(self):
-        nodes.llm.calls.clear()
-        nodes.llm.structured_responses["IntentResponse"] = types.SimpleNamespace(intent="chat")
+        nodes.llm_chat.calls.clear()
+        nodes.llm_chat.structured_responses["IntentResponse"] = types.SimpleNamespace(intent="chat")
 
     def test_returns_structured_intent(self):
-        nodes.llm.structured_responses["IntentResponse"] = types.SimpleNamespace(intent="clarify")
+        nodes.llm_chat.structured_responses["IntentResponse"] = types.SimpleNamespace(intent="clarify")
 
         result = nodes.intent_classifier_node({
             "user_input": "???",
@@ -167,9 +173,11 @@ class TestClarifyNode(unittest.TestCase):
 
 class TestInterviewEvaluatorNode(unittest.TestCase):
     def setUp(self):
-        nodes.llm.structured_responses["InterviewDecision"] = types.SimpleNamespace(
+        nodes.llm_reasoning.structured_responses["InterviewDecision"] = types.SimpleNamespace(
             is_satisfied=False,
+            completion_status="in_progress",
             satisfaction_reason="in_progress",
+            termination_reason=None,
         )
 
     def test_not_satisfied_continues_interview(self):
@@ -182,9 +190,11 @@ class TestInterviewEvaluatorNode(unittest.TestCase):
         self.assertFalse(result["is_satisfied"])
 
     def test_satisfied_ends_interview(self):
-        nodes.llm.structured_responses["InterviewDecision"] = types.SimpleNamespace(
+        nodes.llm_reasoning.structured_responses["InterviewDecision"] = types.SimpleNamespace(
             is_satisfied=True,
+            completion_status="completed",
             satisfaction_reason="good answers",
+            termination_reason=None,
         )
 
         result = nodes.interview_evaluator_node({
@@ -208,24 +218,24 @@ class TestInterviewEvaluatorNode(unittest.TestCase):
 class TestInterviewDecisionSchema(unittest.TestCase):
     def test_bool_field_accepts_true(self):
         decision = InterviewDecision.model_validate({
-            "is_satisfied": True,
+            "is_satisfied": "true",
             "satisfaction_reason": "test",
         })
-        self.assertIs(decision.is_satisfied, True)
+        self.assertEqual(decision.is_satisfied, "true")
 
     def test_bool_field_accepts_false(self):
         decision = InterviewDecision.model_validate({
-            "is_satisfied": False,
+            "is_satisfied": "false",
             "satisfaction_reason": "test",
         })
-        self.assertIs(decision.is_satisfied, False)
+        self.assertEqual(decision.is_satisfied, "false")
 
     def test_bool_field_coerces_string(self):
         decision = InterviewDecision.model_validate({
             "is_satisfied": "true",
             "satisfaction_reason": "test",
         })
-        self.assertIs(decision.is_satisfied, True)
+        self.assertEqual(decision.is_satisfied, "true")
 
 
 class TestAskQuestionNode(unittest.TestCase):
@@ -262,9 +272,7 @@ class TestCloseInterviewNode(unittest.TestCase):
 class TestReportGeneratorNode(unittest.TestCase):
     def setUp(self):
         # Mock the PDF builder
-        nodes.build_candidate_report_pdf = (
-            lambda session_id, report, summary, recommendation, transcript_lines: f"/tmp/{session_id}.pdf"
-        )
+        nodes.build_candidate_report_pdf = lambda **kwargs: f"/tmp/{kwargs['session_id']}.pdf"
 
     def test_generates_report_with_config(self):
         state = {

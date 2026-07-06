@@ -30,15 +30,21 @@ class AgentState(TypedDict):
     difficulty: Optional[str]
     interview_mode: Optional[str]
     code_submissions: Optional[List[dict]]
+    code_challenge_count: int
 
     # final response returned to client
     output: str
 
     # interview lifecycle
     question_count: int
+    answered_count: int
+    refused_count: int
     is_satisfied: bool
     satisfaction_reason: str
     interview_complete: bool
+    completion_status: Optional[str]
+    interview_started_at: Optional[str]
+    interview_completed_at: Optional[str]
 
     # post-interview evaluation report
     candidate_report: Optional[dict]

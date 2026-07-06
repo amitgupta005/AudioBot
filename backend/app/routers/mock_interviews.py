@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import require_candidate
+from app.config import MOCK_INTERVIEW_COMPANY_NAME
 from app.helpers import extract_pdf_text, get_candidate_or_404, get_interview_or_404
 from app.models.candidates import Candidate
 from app.models.interviews import Interview
@@ -19,7 +20,6 @@ from app.schemas.interview import InterviewResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/mock-interviews", tags=["mock-interviews"])
-
 
 @router.post("/start", status_code=status.HTTP_201_CREATED, response_model=InterviewResponse)
 async def start_mock_interview(
@@ -35,6 +35,19 @@ async def start_mock_interview(
         raise HTTPException(status_code=400, detail="Only PDF uploads are accepted for resume.")
     if not jd_text and not jd_file:
         raise HTTPException(status_code=400, detail="Either jd_text or jd_file must be provided.")
+
+    if current_user.email.endswith("@guest.audiobot.local"):
+        from sqlalchemy import func
+        result = await db.execute(
+            select(func.count(Interview.id))
+            .join(Candidate)
+            .where(Candidate.user_id == current_user.id)
+        )
+        if result.scalar_one() >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail="Guests are limited to one mock interview. Please create an account to continue."
+            )
 
     try:
         resume_text_content = extract_pdf_text(await resume.read())
@@ -71,7 +84,7 @@ async def start_mock_interview(
         description="Self-service mock interview",
         raw_job_description=jd_content,
         company_id=sys_user.id,
-        company_name="Noventra Practice Lab",
+        company_name=MOCK_INTERVIEW_COMPANY_NAME,
         is_active=False
     )
     db.add(job)

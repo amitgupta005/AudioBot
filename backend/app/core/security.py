@@ -14,14 +14,28 @@ from app.core.database import get_db, AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
+from fastapi.concurrency import run_in_threadpool
+from fastapi.security import HTTPBearer
+
 bearer_scheme = HTTPBearer()
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+def _hash_password_sync(password: str) -> str:
+    # Use 10 rounds for faster auth while maintaining security (default 12 takes ~300ms, 10 takes ~75ms)
+    salt = bcrypt.gensalt(rounds=10)
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
-def verify_password(password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(password, hashed_password)
+def _verify_password_sync(password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
+
+async def hash_password(password: str) -> str:
+    return await run_in_threadpool(_hash_password_sync, password)
+
+async def verify_password(password: str, hashed_password: str) -> bool:
+    return await run_in_threadpool(_verify_password_sync, password, hashed_password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None)-> str:
     to_encode = data.copy()

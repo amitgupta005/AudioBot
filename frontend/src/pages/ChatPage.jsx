@@ -109,6 +109,7 @@ export default function ChatPage() {
   const mediaStreamRef = useRef(null);
   const audioChunksRef = useRef([]);
   const chatStreamRef = useRef(null);
+  const recordTimeoutRef = useRef(null);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -125,6 +126,8 @@ export default function ChatPage() {
   const [reportDownloadUrl, setReportDownloadUrl] = useState("");
   const [activityNote, setActivityNote] = useState("Waiting for your next message.");
   const [panelTab, setPanelTab] = useState("conversation");
+  const [codeSubmissions, setCodeSubmissions] = useState([]);
+  const [challengeDeadline, setChallengeDeadline] = useState(null);
 
   useEffect(() => {
     touchSession(sessionId);
@@ -158,6 +161,17 @@ export default function ChatPage() {
               ? "Session restored. You can continue from the latest question."
               : "Context loaded. Start with a short introduction to kick off the interview."
         );
+        // Auto-switch to code editor if the last AI message was a code challenge
+        const lastAi = [...nextState.messages].reverse().find((m) => m.type === "ai");
+        if (lastAi && lastAi.content && lastAi.content.includes("[CODE_CHALLENGE]")) {
+          setPanelTab("code");
+          // Reconstruct the timer based on the message timestamp + 15 mins (900000 ms)
+          const messageTime = new Date(lastAi.createdAt).getTime();
+          const deadline = messageTime + 15 * 60 * 1000;
+          setChallengeDeadline(deadline);
+        } else {
+          setChallengeDeadline(null);
+        }
         setSessions(dedupeSessions(listKnownSessions(), [], sessionId));
       } catch (loadError) {
         if (!active) {
@@ -243,6 +257,9 @@ export default function ChatPage() {
           if (aiText.includes("[CODE_CHALLENGE]")) {
             aiText = aiText.replace("[CODE_CHALLENGE]", "").trim();
             setPanelTab("code");
+            setChallengeDeadline(Date.now() + 15 * 60 * 1000); // 15 mins
+          } else {
+            setChallengeDeadline(null);
           }
           setMessages((current) => [...current, buildUiMessage("ai", aiText)]);
           setSending(false);
@@ -283,6 +300,9 @@ export default function ChatPage() {
   }, [sessionId]);
 
   useEffect(() => () => {
+    if (recordTimeoutRef.current) {
+      clearTimeout(recordTimeoutRef.current);
+    }
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
@@ -332,7 +352,9 @@ export default function ChatPage() {
     setError("");
     setSending(true);
     setActivityNote("Code submitted. AudioBot is reviewing your solution.");
-    setMessages((current) => [...current, buildUiMessage("human", `[Submitted ${language} code]` )]);
+    const submission = { code, language, timestamp: new Date().toISOString() };
+    setCodeSubmissions((prev) => [...prev, submission]);
+    setMessages((current) => [...current, buildUiMessage("human", `\`\`\`${language}\n${code}\n\`\`\``)]);
     setPanelTab("conversation");
     socketRef.current.send(
       JSON.stringify({
@@ -373,6 +395,9 @@ export default function ChatPage() {
     }
 
     if (recording) {
+      if (recordTimeoutRef.current) {
+        clearTimeout(recordTimeoutRef.current);
+      }
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         recorderRef.current.stop();
       }
@@ -405,6 +430,9 @@ export default function ChatPage() {
       });
 
       recorder.addEventListener("stop", async () => {
+        if (recordTimeoutRef.current) {
+          clearTimeout(recordTimeoutRef.current);
+        }
         try {
           const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
           audioChunksRef.current = [];
@@ -429,7 +457,14 @@ export default function ChatPage() {
 
       recorder.start();
       setRecording(true);
-      setActivityNote("Recording your response. Press again to stop.");
+      setActivityNote("Recording your response (max 50s). Press again to stop.");
+
+      recordTimeoutRef.current = setTimeout(() => {
+        if (recorderRef.current && recorderRef.current.state !== "inactive") {
+          recorderRef.current.stop();
+          setActivityNote("Time limit reached. Uploading response...");
+        }
+      }, 50000);
     } catch {
       setError("Microphone permission was denied.");
     }
@@ -620,7 +655,11 @@ export default function ChatPage() {
                   <article key={`${message.type}-${index}`} className={`session-message ${message.type}`}>
                     <span>{message.type === "human" ? user?.full_name || "Candidate" : "AudioBot"}</span>
                     <div className={`session-bubble ${message.type}`}>
-                      <p>{message.content}</p>
+                      {message.content && message.content.startsWith("```") ? (
+                        <pre className="code-bubble-pre">{message.content.replace(/^```\w*\n?/, "").replace(/\n?```$/, "")}</pre>
+                      ) : (
+                        <p>{message.content}</p>
+                      )}
                     </div>
                     <small>{formatClock(message.createdAt)}</small>
                   </article>
@@ -636,6 +675,8 @@ export default function ChatPage() {
               <CodeEditor 
                 onSubmit={handleCodeSubmit}
                 disabled={interviewComplete || sending || socketState !== "open"}
+                submissions={codeSubmissions}
+                challengeDeadline={challengeDeadline}
               />
             )}
           </div>

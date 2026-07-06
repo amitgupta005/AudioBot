@@ -173,36 +173,36 @@ class AdminRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "Conversation not found")
 
     def test_health_llm_success(self):
-        fake_module = types.ModuleType("langchain_groq")
+        fake_module = types.ModuleType("langchain_google_vertexai")
 
-        class FakeChatGroq:
-            def __init__(self, model):
-                self.model = model
+        class FakeChatVertexAI:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
 
             def invoke(self, _prompt):
                 return "ok"
 
-        fake_module.ChatGroq = FakeChatGroq
+        fake_module.ChatVertexAI = FakeChatVertexAI
 
-        with patch.dict(sys.modules, {"langchain_groq": fake_module}):
+        with patch.dict(sys.modules, {"langchain_google_vertexai": fake_module}):
             response = self.client.get("/api/v1/admin/health/llm")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"llm": "reachable"})
 
     def test_health_llm_failure(self):
-        fake_module = types.ModuleType("langchain_groq")
+        fake_module = types.ModuleType("langchain_google_vertexai")
 
-        class FakeChatGroq:
-            def __init__(self, model):
-                self.model = model
+        class FakeChatVertexAI:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
 
             def invoke(self, _prompt):
                 raise RuntimeError("unreachable")
 
-        fake_module.ChatGroq = FakeChatGroq
+        fake_module.ChatVertexAI = FakeChatVertexAI
 
-        with patch.dict(sys.modules, {"langchain_groq": fake_module}):
+        with patch.dict(sys.modules, {"langchain_google_vertexai": fake_module}):
             response = self.client.get("/api/v1/admin/health/llm")
 
         self.assertEqual(response.status_code, 500)

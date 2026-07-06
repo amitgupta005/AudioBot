@@ -50,6 +50,17 @@ export default function MockInterviewPage() {
 
     setSubmitting(true);
     try {
+      if (!user) {
+        if (localStorage.getItem("audiobot.guest.taken") === "true") {
+          throw new Error("You've used your free guest interview. Please sign in or create an account to continue.");
+        }
+        const { createGuestSession } = await import("../lib/api.js");
+        const { saveAuthSession } = await import("../lib/authStore.js");
+        const guestSession = await createGuestSession();
+        saveAuthSession(guestSession, true);
+        localStorage.setItem("audiobot.guest.taken", "true");
+      }
+
       const interview = await startMockInterview({
         resumeFile,
         jdText: jdMode === "paste" ? jdText : "",
@@ -69,15 +80,23 @@ export default function MockInterviewPage() {
       <header className="mock-page-header">
         <div className="mock-brand">
           <h1>AudioBot <span>Candidate</span></h1>
-          <p>Signed in as {user?.full_name || user?.email || "Candidate"}</p>
+          <p>{user ? `Signed in as ${user.full_name || user.email || "Candidate"}` : "Guest Mode: 1 Free Interview"}</p>
         </div>
         <div className="mock-header-actions">
-          <button className="mock-header-link" onClick={() => navigate("/candidate")} type="button">
-            Back to Portal
-          </button>
-          <button className="mock-header-link" onClick={handleSignOut} type="button">
-            Sign out
-          </button>
+          {user ? (
+            <>
+              <button className="mock-header-link" onClick={() => navigate("/candidate")} type="button">
+                Back to Portal
+              </button>
+              <button className="mock-header-link" onClick={handleSignOut} type="button">
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button className="mock-header-link" onClick={() => navigate("/auth")} type="button">
+              Sign In
+            </button>
+          )}
         </div>
       </header>
 

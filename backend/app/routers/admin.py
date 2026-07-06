@@ -85,9 +85,13 @@ async def health():
 @router.get("/health/llm", dependencies=[Depends(require_admin)])
 async def health_llm(request: Request):
     def _check_llm():
-        from langchain_groq import ChatGroq
-        from app.config import GROQ_MODEL
-        llm = ChatGroq(model=GROQ_MODEL)
+        from langchain_google_vertexai import ChatVertexAI
+        from app.config import VERTEX_AI_MODEL_CHAT, VERTEX_AI_PROJECT, VERTEX_AI_LOCATION
+        llm = ChatVertexAI(
+            model_name=VERTEX_AI_MODEL_CHAT,
+            project=VERTEX_AI_PROJECT,
+            location=VERTEX_AI_LOCATION,
+        )
         llm.invoke("Hi")
 
     try:

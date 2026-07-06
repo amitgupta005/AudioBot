@@ -320,4 +320,13 @@ export function createChatSocket(interviewId) {
   return new WebSocket(token ? `${url}?token=${encodeURIComponent(token)}` : url);
 }
 
+export async function createGuestSession() {
+  const response = await request(`${API_BASE_URL}/api/v1/auth/guest`, {
+    method: "POST",
+    headers: createHeaders(),
+  });
+  await ensureOk(response);
+  return response.json();
+}
+
 export { API_BASE_URL };

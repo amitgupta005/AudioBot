@@ -43,5 +43,8 @@ class SpeechToText:
             logger.info("Transcription complete.")
             return text.strip()
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
-            raise e
+            error_str = str(e)
+            logger.error(f"Transcription error: {error_str}")
+            if "too long" in error_str.lower() or "1 min" in error_str.lower() or "400" in error_str:
+                raise ValueError("Your audio response exceeded the limit. Please try again with a more concise answer.")
+            raise ValueError(f"Speech recognition failed: {error_str}")

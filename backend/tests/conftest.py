@@ -105,7 +105,7 @@ def dummy_tts() -> DummyTTS:
 def patch_dependencies(dummy_agent, dummy_stt, dummy_tts, monkeypatch):
     """
     Patches the app.dependencies module so it uses dummy agent/stt/tts
-    instead of initializing the real ones (which need Redis, Groq API, etc.).
+    instead of initializing the real ones (which need Redis, Vertex AI, etc.).
 
     Usage:
         def test_something(patch_dependencies, test_client):

@@ -112,13 +112,24 @@ async def read_conversation_payload(agent, interview_id: str):
 
         serialized = []
         for msg in conversation:
+            message_type = getattr(msg, "type", "unknown")
+            if message_type == "human":
+                speaker = "Candidate"
+            elif message_type == "ai":
+                speaker = "Interviewer"
+            elif message_type == "system":
+                speaker = "System"
+            else:
+                speaker = message_type.title()
             serialized.append({
-                "type": getattr(msg, "type", "unknown"),
+                "type": message_type,
+                "speaker": speaker,
                 "data": {"content": getattr(msg, "content", str(msg))},
             })
 
         return {
             "interview_id": interview_id,
+            "interview_type": channel_values.get("interview_type", "hr"),
             "messages": serialized,
             "context": {
                 "jd_text": channel_values.get("jd_text"),
@@ -126,6 +137,7 @@ async def read_conversation_payload(agent, interview_id: str):
             },
             "candidate_report": channel_values.get("candidate_report"),
             "candidate_report_pdf": channel_values.get("candidate_report_pdf"),
+            "completion_status": channel_values.get("completion_status"),
         }
 
     raise HTTPException(status_code=404, detail="Conversation not found")
