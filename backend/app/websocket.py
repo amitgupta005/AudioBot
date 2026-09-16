@@ -154,7 +154,8 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
     try:
         while True:
             try:
-                raw = await websocket.receive_text()                data = json.loads(raw)
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
             except WebSocketDisconnect:
                 logger.info("WebSocket disconnected.")
                 break
