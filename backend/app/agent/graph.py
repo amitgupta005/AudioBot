@@ -22,12 +22,14 @@ from app.config import DATABASE_URL
 connection_kwargs = {
     "autocommit": True,
     "prepare_threshold": 0,
-    "sslmode": "require",
 }
+
+# Supabase requires SSL — append sslmode=require to the conninfo URL if not already present
+_conninfo = DATABASE_URL if "sslmode=" in DATABASE_URL else DATABASE_URL + "?sslmode=require"
 
 # The pool connects asynchronously. We manage its lifecycle in main.py lifespan.
 pool = AsyncConnectionPool(
-    conninfo=DATABASE_URL,
+    conninfo=_conninfo,
     max_size=20,
     kwargs=connection_kwargs,
     open=False,
