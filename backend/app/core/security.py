@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -127,6 +128,8 @@ async def authenticate_websocket_token(websocket: WebSocket) -> User | None:
     """
     token = websocket.query_params.get("token")
     if not token:
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"error": "Missing authentication token. Please log in again.", "code": 4001}))
         await websocket.close(code=4001, reason="Missing authentication token")
         logger.warning("WebSocket rejected: no token provided")
         return None
@@ -135,10 +138,14 @@ async def authenticate_websocket_token(websocket: WebSocket) -> User | None:
         payload = decode_token(token)
         user_id: str | None = payload.get("sub")
         if user_id is None:
+            await websocket.accept()
+            await websocket.send_text(json.dumps({"error": "Invalid token. Please log in again.", "code": 4003}))
             await websocket.close(code=4003, reason="Invalid token payload")
             logger.warning("WebSocket rejected: token missing 'sub' claim")
             return None
     except HTTPException:
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"error": "Session expired. Please log in again.", "code": 4003}))
         await websocket.close(code=4003, reason="Invalid or expired token")
         logger.warning("WebSocket rejected: token decode failed")
         return None
@@ -148,6 +155,8 @@ async def authenticate_websocket_token(websocket: WebSocket) -> User | None:
         user = result.scalar_one_or_none()
 
     if user is None:
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"error": "User not found. Please log in again.", "code": 4003}))
         await websocket.close(code=4003, reason="User not found")
         logger.warning("WebSocket rejected: user %s not found", user_id)
         return None
