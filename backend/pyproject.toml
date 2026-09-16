@@ -21,7 +21,7 @@ dependencies = [
     "langgraph-checkpoint-postgres",
     "psycopg[binary,pool]",
     "google-cloud-storage",
-    "google-cloud-speech",
+    "groq>=0.9.0",
     "google-cloud-texttospeech",
     "pdfplumber",
     "pydantic",

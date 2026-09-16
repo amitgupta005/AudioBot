@@ -124,9 +124,7 @@ INSTRUCTIONS
 # Alias for existing code assuming SYSTEM_MESSAGE means HR
 SYSTEM_MESSAGE = SYSTEM_MESSAGE_HR
 
-# Audio configuration
-STT_MODEL = "base"
-TTS_MODEL = "en-US-AvaNeural"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Report output configuration (local fallback)
 REPORTS_DIR = os.getenv(

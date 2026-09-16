@@ -22,6 +22,7 @@ from app.config import DATABASE_URL
 connection_kwargs = {
     "autocommit": True,
     "prepare_threshold": 0,
+    "sslmode": "require",
 }
 
 # The pool connects asynchronously. We manage its lifecycle in main.py lifespan.
