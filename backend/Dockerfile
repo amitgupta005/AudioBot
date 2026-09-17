@@ -67,4 +67,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 # leaves no control frames in either direction. Dead-connection detection is
 # handled by the client's auto-reconnect in ChatPage.jsx instead.
 # Do NOT use 0 here: it makes the WebSocket handshake return 502.
+#
+# This flag alone is NOT sufficient. Cloud Run must also run with CPU always
+# allocated (--no-cpu-throttling, set in deploy-backend.yml): with CPU throttled
+# the event loop is starved between requests and the socket is dropped anyway
+# (verified: throttled -> died at 23.8s; always-allocated -> survived 150s+).
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --ws-ping-interval 3600 --ws-ping-timeout 3600"]
