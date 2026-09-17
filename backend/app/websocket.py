@@ -146,11 +146,19 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
     # --- Authenticate before accepting the connection ---
     user = await authenticate_websocket_token(websocket)
     if user is None:
-        return  # Socket already closed by authenticate_websocket_token
+        # Accept first so the browser can actually read the reason; a pre-accept
+        # close surfaces as an opaque connection failure. "auth_error" tells the
+        # client to stop reconnecting instead of retrying a rejected token.
+        await websocket.accept()
+        await websocket.send_text(json.dumps({
+            "type": "auth_error",
+            "error": "Session expired or invalid. Please log in again.",
+        }))
+        await websocket.close(code=4003, reason="Authentication failed")
+        return
 
     await websocket.accept()
     logger.info("WebSocket connection accepted for user %s (interview %s).", user.email, interview_id)
-
     try:
         while True:
             try:
@@ -168,6 +176,13 @@ async def websocket_handler(websocket: WebSocket, interview_id: str):
                 break
 
             msg_type = data.get("type", "text")
+
+            # Tolerate an application-level heartbeat from any client without
+            # treating it as an unsupported message. Handled before any
+            # DB/checkpointer work so it stays cheap.
+            if msg_type == "ping":
+                continue
+
             user_text = ""
             # Ensure the AI has JD and Resume context before processing
             channel_values = await _ensure_interview_context(interview_id)

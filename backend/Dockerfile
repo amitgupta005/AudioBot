@@ -51,4 +51,20 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/docs || exit 1
 
 # ---- Entrypoint ----
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# WebSocket keepalive pings are effectively disabled (3600s) on purpose.
+#
+# uvicorn 0.42 -> 0.46 added keepalive pings to the websockets-sansio
+# implementation (Kludex/uvicorn PR #2884). Those server->client Ping control
+# frames do not survive Cloud Run's proxy: the pong never returns, so uvicorn
+# tears the connection down at ws-ping-interval + ws-ping-timeout (20s + 20s),
+# and the browser sees an abrupt 1006 close roughly 20s after connecting.
+#
+# Measured on Cloud Run: ping=20s -> died 12-22s; ping=5s -> died 12.5s;
+# pings disabled -> idle connection survived 150s+. Localhost is unaffected
+# because there is no proxy in the path.
+#
+# Browsers never initiate WebSocket pings, so dropping server-side keepalive
+# leaves no control frames in either direction. Dead-connection detection is
+# handled by the client's auto-reconnect in ChatPage.jsx instead.
+# Do NOT use 0 here: it makes the WebSocket handshake return 502.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --ws-ping-interval 3600 --ws-ping-timeout 3600"]

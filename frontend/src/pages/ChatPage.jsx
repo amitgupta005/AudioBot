@@ -201,23 +201,61 @@ export default function ChatPage() {
   }, [sessionId]);
 
   useEffect(() => {
-    const socket = createChatSocket(sessionId);
-    socketRef.current = socket;
+    let disposed = false;
+    let authFailed = false;
+    let reconnectAttempt = 0;
+    let reconnectTimer = null;
 
-    socket.addEventListener("open", () => {
-      setSocketState("open");
-    });
+    function scheduleReconnect() {
+      // Retrying a rejected token would loop forever, so auth failures are fatal.
+      if (disposed || authFailed || reconnectTimer) {
+        return;
+      }
+      reconnectAttempt += 1;
+      const delay = Math.min(30000, 1000 * 2 ** (reconnectAttempt - 1));
+      setActivityNote(`Connection lost. Reconnecting in ${Math.round(delay / 1000)}s...`);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    }
 
-    socket.addEventListener("close", () => {
-      setSocketState("closed");
-    });
+    function connect() {
+      if (disposed) {
+        return;
+      }
 
-    socket.addEventListener("error", () => {
-      setSocketState("error");
-      setError("WebSocket connection failed.");
-    });
+      setSocketState("connecting");
+      const socket = createChatSocket(sessionId);
+      socketRef.current = socket;
 
-    socket.addEventListener("message", async (event) => {
+      socket.addEventListener("open", () => {
+        reconnectAttempt = 0;
+        setSocketState("open");
+        setError("");
+      });
+
+      socket.addEventListener("close", () => {
+        if (disposed) {
+          return;
+        }
+        setSocketState("closed");
+        // Never leave the composer permanently locked after a dropped connection.
+        sendLockRef.current = false;
+        setSending(false);
+        setRecording(false);
+        scheduleReconnect();
+      });
+
+      socket.addEventListener("error", () => {
+        if (disposed) {
+          return;
+        }
+        setSocketState("error");
+        setError("Connection to the interview service failed. Reconnecting...");
+      });
+
+      socket.addEventListener("message", async (event) => {
       try {
         if (typeof event.data !== "string") {
           try {
@@ -232,6 +270,9 @@ export default function ChatPage() {
         }
 
         const payload = JSON.parse(event.data);
+        if (payload.type === "auth_error") {
+          authFailed = true;
+        }
         if (payload.error) {
           setError(payload.error);
           setSending(false);
@@ -292,10 +333,19 @@ export default function ChatPage() {
         sendLockRef.current = false;
         setRecording(false);
       }
-    });
+      });
+    }
+
+    connect();
 
     return () => {
-      socket.close();
+      disposed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
     };
   }, [sessionId]);
 
