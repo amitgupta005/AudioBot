@@ -38,7 +38,14 @@ class StubAgent:
             "report_download_url": None,
         }
 
+    # websocket_handler awaits agent.ainvoke(), so the stub must expose it too.
+    async def ainvoke(self, state, config=None):
+        return self.invoke(state, config)
+
     def update_state(self, config, values):
+        pass
+
+    async def aupdate_state(self, config, values):
         pass
 
 
@@ -123,24 +130,31 @@ class WebSocketHandlerTests(unittest.TestCase):
         stub_tts.calls.clear()
 
     def test_rejects_connection_without_token(self):
-        """WebSocket without JWT token should be rejected with code 4001."""
+        """A missing JWT is accepted, told why, then closed with 4003.
+
+        The socket is accepted first on purpose: closing before accept() shows
+        up in the browser as an opaque connection failure, so the client cannot
+        tell "session expired" apart from "backend down".
+        """
         websocket = FakeWebSocket()
 
         asyncio.run(websocket_handler(websocket, "interview-1"))
 
-        self.assertFalse(websocket.accepted)
+        self.assertTrue(websocket.accepted)
         self.assertTrue(websocket.closed)
-        self.assertEqual(websocket.close_code, 4001)
+        self.assertEqual(websocket.close_code, 4003)
+        self.assertEqual(websocket.sent_texts[0]["type"], "auth_error")
 
     def test_rejects_connection_with_invalid_token(self):
-        """WebSocket with invalid JWT should be rejected with code 4003."""
+        """An invalid JWT is accepted, told why, then closed with 4003."""
         websocket = FakeWebSocket(query_params={"token": "invalid-jwt-token"})
 
         asyncio.run(websocket_handler(websocket, "interview-1"))
 
-        self.assertFalse(websocket.accepted)
+        self.assertTrue(websocket.accepted)
         self.assertTrue(websocket.closed)
         self.assertEqual(websocket.close_code, 4003)
+        self.assertEqual(websocket.sent_texts[0]["type"], "auth_error")
 
     def test_text_message_round_trip_with_auth(self):
         """Valid auth + text message should produce an AI response."""

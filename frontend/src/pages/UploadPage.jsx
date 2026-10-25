@@ -208,10 +208,11 @@ export default function UploadPage() {
               <h4 className="upload-form-title">Job Application</h4>
               
               <div className="upload-form-group">
-                <label className="upload-form-label">Select Job</label>
+                <label className="upload-form-label" htmlFor="upload-job-select">Select Job</label>
                 <select
                   className="upload-select"
                   disabled={loadingJobs || submitting}
+                  id="upload-job-select"
                   onChange={(event) => setSelectedJobId(event.target.value)}
                   value={selectedJobId}
                 >
@@ -225,10 +226,11 @@ export default function UploadPage() {
               </div>
 
               <div className="upload-form-group">
-                <label className="upload-form-label">Resume (PDF)</label>
+                <label className="upload-form-label" htmlFor="upload-resume-file">Resume (PDF)</label>
                 <label className={`upload-dropzone ${resumeFile ? "has-file" : ""}`}>
                   <input
                     accept="application/pdf"
+                    id="upload-resume-file"
                     onChange={(event) => setResumeFile(event.target.files?.[0] || null)}
                     type="file"
                   />

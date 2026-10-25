@@ -54,6 +54,11 @@ class DummyCheckpointer:
         thread_id = config["configurable"]["thread_id"]
         return self.by_thread.get(thread_id)
 
+    # The app uses AsyncPostgresSaver, and helpers.read_conversation_payload
+    # requires an async aget_tuple. Without this the route 404s.
+    async def aget_tuple(self, config):
+        return self.get_tuple(config)
+
 
 class DummyAgent:
     def __init__(self):

@@ -48,6 +48,10 @@ class DummyCheckpointer:
     def get_tuple(self, _config):
         return self.tuple_to_return
 
+    async def aget_tuple(self, _config):
+        """The app uses AsyncPostgresSaver; helpers require the async variant."""
+        return self.tuple_to_return
+
 
 class DummyAgent:
     """Stub agent that records calls without needing LLM or Redis."""
@@ -63,6 +67,13 @@ class DummyAgent:
     def invoke(self, state, config=None):
         self.invoke_calls.append((state, config))
         return {"output": "stubbed response"}
+
+    # websocket_handler awaits the async variants.
+    async def ainvoke(self, state, config=None):
+        return self.invoke(state, config)
+
+    async def aupdate_state(self, config, new_values):
+        self.update_state(config, new_values)
 
 
 class DummySTT:

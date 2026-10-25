@@ -23,29 +23,16 @@ if BACKEND_ROOT not in sys.path:
 dotenv.load_dotenv = lambda *args, **kwargs: False
 
 
-class BaseMessage:
-    def __init__(self, content):
-        self.content = content
-
-
-class HumanMessage(BaseMessage):
-    type = "human"
-
-
-class AIMessage(BaseMessage):
-    type = "ai"
-
-
-class SystemMessage(BaseMessage):
-    type = "system"
-
-
-message_module = types.ModuleType("langchain_core.messages")
-message_module.BaseMessage = BaseMessage
-message_module.HumanMessage = HumanMessage
-message_module.AIMessage = AIMessage
-message_module.SystemMessage = SystemMessage
-sys.modules["langchain_core.messages"] = message_module
+# Use the real message classes. An earlier version of this file installed a
+# stub `langchain_core.messages` into sys.modules, which leaked into every
+# later test module in the same session and broke any import of langchain_core
+# internals (they do `from langchain_core.messages import get_buffer_string`).
+from langchain_core.messages import (  # noqa: E402
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 
 
 class FakeStructuredLlm:
@@ -197,10 +184,12 @@ class TestInterviewEvaluatorNode(unittest.TestCase):
             termination_reason=None,
         )
 
+        # question_count must sit between MIN_EVAL_THRESHOLD (4) and the "hr"
+        # ceiling (8); at 8 the node force-ends before consulting the LLM.
         result = nodes.interview_evaluator_node({
             "user_input": "Final answer",
             "conversation": [SystemMessage("prompt"), HumanMessage("Q"), AIMessage("A")],
-            "question_count": 8,
+            "question_count": 5,
         })
         self.assertTrue(result["interview_complete"])
         self.assertTrue(result["is_satisfied"])

@@ -30,7 +30,6 @@ dependencies = [
     "SQLAlchemy",
     "alembic",
     "asyncpg",
-    "psycopg2-binary",
     "python-jose",
     "passlib[bcrypt]",
     "bcrypt<5",

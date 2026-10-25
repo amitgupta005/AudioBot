@@ -49,6 +49,13 @@ class IntegrationStubAgent:
     def update_state(self, config, values):
         pass
 
+    # websocket_handler awaits the async variants of the langgraph API.
+    async def ainvoke(self, state, config=None):
+        return self.invoke(state, config)
+
+    async def aupdate_state(self, config, values):
+        self.update_state(config, values)
+
 
 from fastapi import WebSocketDisconnect  # noqa: E402
 
@@ -124,7 +131,17 @@ class FullInterviewFlowTest(unittest.TestCase):
                 }
             return {}
 
-        import app.websocket as ws_mod
+        # app.websocket does `from app.dependencies import agent, stt, tts`, and
+        # importing the real app.dependencies constructs a Groq client and a
+        # Google TTS client -- i.e. it needs credentials. Stub the module so this
+        # test runs standalone and not just after whichever earlier test module
+        # happened to leave a faked app.dependencies in sys.modules.
+        fake_deps = types.ModuleType("app.dependencies")
+        fake_deps.agent = None
+        fake_deps.stt = None
+        fake_deps.tts = None
+        with patch.dict(sys.modules, {"app.dependencies": fake_deps}):
+            import app.websocket as ws_mod
 
         with patch.object(ws_mod, "authenticate_websocket_token", return_value=mock_user), \
              patch.object(ws_mod, "_ensure_interview_context", side_effect=fake_ensure), \

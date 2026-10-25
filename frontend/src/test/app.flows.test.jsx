@@ -116,12 +116,13 @@ function buildFetchResponse(data, ok = true, status = 200) {
 }
 
 async function signInAsCandidate(user) {
-  renderApp(["/"]);
+  // Render /auth directly: "/" is the public landing page and has no portal switcher.
+  renderApp(["/auth"]);
   await user.click(screen.getByRole("button", { name: /candidate portal/i }));
   await user.type(screen.getByLabelText(/email address/i), "candidate@example.com");
   await user.type(screen.getByLabelText(/password/i), "password123");
   await user.click(screen.getByRole("button", { name: /^continue$/i }));
-  await screen.findByText(/Apply to a job and join your scheduled interview/i);
+  await screen.findByRole("heading", { name: /apply for job/i });
 }
 
 beforeEach(() => {
@@ -256,7 +257,7 @@ describe("frontend flows", () => {
     await signInAsCandidate(user);
 
     await user.upload(screen.getByLabelText(/resume \(pdf\)/i), new File(["resume"], "resume.pdf", { type: "application/pdf" }));
-    await user.click(screen.getByRole("button", { name: /apply for job/i }));
+    await user.click(screen.getByRole("button", { name: /submit application/i }));
 
     expect(await screen.findByText(/AudioBot Interview Agent/i)).toBeInTheDocument();
     expect(screen.getByText("interview-cand-1")).toBeInTheDocument();
@@ -353,7 +354,7 @@ describe("frontend flows", () => {
     expect(await within(screen.getByTestId("chat-stream")).findByText("First session intro")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /new session/i }));
-    expect(await screen.findByText(/Apply to a job and join your scheduled interview/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /apply for job/i })).toBeInTheDocument();
   });
 
   it("Completed Interview: disables input and shows generated summary", async () => {

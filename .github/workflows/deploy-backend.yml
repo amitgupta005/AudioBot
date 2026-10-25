@@ -15,7 +15,42 @@ env:
   IMAGE: asia-south1-docker.pkg.dev/black-moon-508816-a8/audiobot-repo/audiobot-backend
 
 jobs:
+  # Gate: nothing reaches Cloud Run unless the backend suite passes.
+  # requirements.lock is the production dependency set and already pins pytest,
+  # pytest-asyncio and httpx, so this runs the tests against exactly what ships.
+  # The suite needs no credentials and no network: dotenv.load_dotenv is
+  # monkeypatched to a no-op, and the Groq/Vertex/TTS clients are all faked.
+  test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.11 matches the Dockerfile base image.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install --no-deps -e .
+
+      - name: Run tests
+        run: pytest
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
 
     permissions:

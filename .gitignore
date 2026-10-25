@@ -30,3 +30,12 @@ backend/tests/cli_audio_session/
 
 # Frontend build output (Vercel builds from source)
 frontend/dist/
+
+# Generated interview reports — local fallback output, may contain candidate data
+backend/generated_reports/
+
+# Scratch scripts, not collected by pytest
+backend/tmp/
+
+# Sample resumes / JDs used for local experiments (keep PII out of git)
+backend/notebooks/*.pdf
