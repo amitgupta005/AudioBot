@@ -48,7 +48,14 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
-    email: EmailStr
+    # Plain `str`, not EmailStr. Addresses are validated on the way in by
+    # UserRegister; re-validating on the way out only creates failure modes for
+    # rows the app itself generates. /auth/guest mints
+    # guest_<uuid>@guest.audiobot.local and the mock-interview flow creates
+    # system@audiobot.local -- email-validator rejects `.local` as a
+    # special-use reserved domain, so EmailStr here made /auth/guest and
+    # /auth/me return 500 for guests after already committing the user row.
+    email: str
     full_name: str
     company_name: Optional[str | None] = None
     role: str
